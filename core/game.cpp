@@ -81,6 +81,7 @@ void Game::init(uint32_t seed) {
   cursor = -1;
   menuOpen = false;
   infoScreen = false;
+  forecastCount = 0; weatherExtraUntil = 0;
   menuTransitionAt = now - MENU_ANIM_MS;
   nextHobby = now + 45u * 60000u;
   hobbyKind = 0;
@@ -99,6 +100,7 @@ bool Game::load(const Save& saved) {
   cursor = -1;
   menuOpen = false;
   infoScreen = false;
+  forecastCount = 0; weatherExtraUntil = 0;
   menuTransitionAt = now - MENU_ANIM_MS;
   // После перезагрузки millis() начинается с нуля; старый момент включения
   // ночника не сохраняется. Если Бит уже спит в темноте — запускаем окно заново.
