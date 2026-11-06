@@ -1,6 +1,11 @@
-name: Generate authentic 0.41 screenshots
+name: Verify real pixel screenshots (0.42 dashboard)
 
 on:
+  push:
+    branches: ['experiment/pet-clock-weather-screen']
+    paths:
+      - sim/docs_shots.cpp
+      - .github/workflows/real-screenshots.yml
   workflow_dispatch:
 
 permissions:
@@ -10,7 +15,7 @@ jobs:
   screenshots:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout 0.41 rendering engine
+      - name: Checkout renderer from branch
         uses: actions/checkout@v4
       - name: Build native renderer
         run: |
@@ -33,12 +38,12 @@ jobs:
                   target / (ppm.stem + ".png"), format="PNG", optimize=True
               )
               names.append(ppm.stem)
-          assert len(names) == 8, names
+          assert len(names) == 10, names
           print("Accurate images rendered from source:", names)
           PY
       - name: Upload visual proof
         uses: actions/upload-artifact@v4
         with:
-          name: Bit-0.41-authentic-screenshots
+          name: Bit-0.42-pet-and-weather-screenshots
           path: docs/screenshots/*.png
           if-no-files-found: error
