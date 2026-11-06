@@ -181,6 +181,7 @@ class Game {
   void setBattery(int pct, bool charging) { batPct = pct; batCharging = charging; }
   void gpsFeed(const GpsFix& fix);
   void wake() { idleMs = 0; }
+  void wakeToInfo();  // первое нажатие при погашенном дисплее: часы/погода, без игрового действия
 
   // игра -> платформа
   bool wantsGps() const;
