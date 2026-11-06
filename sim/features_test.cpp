@@ -216,7 +216,7 @@ int main() {
     b.command("data", out, sizeof out);
     printf("     > data → %s\n", out);
     int fields = 0; for (char* p = out; *p; p++) if (*p == '|') fields++;
-    check(strncmp(out, "D|3|", 4) == 0 && fields == 55, "«data» — 54 поля питомца и меню (старые индексы сохранены)");
+    check(strncmp(out, "D|3|", 4) == 0 && fields == 56, "«data» — 55 полей питомца и информера (старые индексы сохранены)");
     b.command("абракадабра", out, sizeof out);
     check(strstr(out, "Не знаю") != nullptr, "неизвестная команда — подсказка");
   }
@@ -664,62 +664,71 @@ int main() {
           resumed.s.stageMin == 0 && resumed.s.ageMin == saved.ageMin,
           "новые сроки сохраняют совместимость с прежним Save v4");
   }
-  // 0.39: нижняя панель скрыта в комнате и плавно выдвигается по нажатию.
+  // Экран информера: одно короткое нажатие переключает экран, долгое открывает меню.
   {
     Game m; memset(&m.s, 0, sizeof m.s); m.init(1001); m.demo(0);
-    check(m.scene == S_HOME && !m.menuOpen && m.menuOffset() == gfx::H - 109,
-          "нижняя панель скрыта при загрузке, комната во всю высоту");
+    check(m.scene == S_HOME && !m.infoScreen && !m.menuOpen &&
+          m.menuOffset() == gfx::H - 109,
+          "домашний экран питомца по умолчанию, панель скрыта");
     m.render(cv);
-    // Последние пиксели под менюшкой теперь принадлежат комнате, а не бару.
     gfx::Color floorAtBottom = fb[(gfx::H - 1) * gfx::W + 100];
-    check(floorAtBottom != pal::gutter,
-          "после скрытия нижняя полоса заполняется изображением пола");
+    check(floorAtBottom != pal::gutter, "пол комнаты заполняет нижние пиксели");
+
+    // Имитация реальной кнопки платы: пока дисплей спит, событие пробуждения
+    // потребляется целиком, а второе нажатие приходит в Game::button().
+    m.idleMs = 31000;
+    m.wakeToInfo();
+    check(m.infoScreen && m.idleMs == 0 && !m.menuOpen &&
+          m.scene == S_HOME && m.s.alive && m.s.hunger == 80,
+          "первое нажатие при погашенном дисплее показывает часы, не меняя питомца");
+    m.render(cv);
     m.button(B_SHORT);
+    check(!m.infoScreen && !m.menuOpen && m.scene == S_HOME,
+          "второе нажатие после пробуждения показывает питомца");
+
+    m.button(B_SHORT);
+    check(m.infoScreen && !m.menuOpen && m.scene == S_HOME,
+          "когда экран уже включён, короткое показывает информер");
+    m.render(cv);
+    m.button(B_SHORT);
+    check(!m.infoScreen && !m.menuOpen, "следующее короткое возвращает питомца");
+
+    m.button(B_LONG);
     check(m.menuOpen && m.cursor == 0 && m.menuOffset() == gfx::H - 109,
-          "первое короткое нажатие открывает меню с первого значка");
+          "долгое нажатие открывает меню с первого значка");
     m.tick(120);
     int halfway = m.menuOffset();
-    check(halfway > 0 && halfway < gfx::H - 109,
-          "анимация плавно сдвигает панель снизу вверх");
+    check(halfway > 0 && halfway < gfx::H - 109, "меню плавно выезжает");
     m.tick(150);
-    check(m.menuOffset() == 0,
-          "через 240 мс панель полностью появилась");
+    check(m.menuOffset() == 0, "меню открыто за 240 мс");
     m.button(B_SHORT);
-    check(m.cursor == 1,
-          "повторное короткое нажатие переключает выбранный пункт");
+    check(m.cursor == 1 && !m.infoScreen, "в открытом меню короткое листает");
     m.button(B_LONG);
     check(m.scene == S_LIST && !m.menuOpen && m.cursor == -1,
-          "долгое нажатие выбирает пункт, меню скрывается за списком");
+          "долгое подтверждает выбранный пункт");
     m.button(B_HOLD);
-    check(m.scene == S_HOME && !m.menuOpen, "удержание возвращает в комнату");
+    check(m.scene == S_HOME && !m.infoScreen && !m.menuOpen,
+          "удержание возвращает на экран питомца");
+
     m.button(B_SHORT);
+    m.button(B_LONG);
+    check(m.menuOpen && !m.infoScreen && m.cursor == 0,
+          "с экрана часов долгое открывает меню, не оставляя информер поверх");
+    m.button(B_HOLD);
     m.tick(250);
-    m.button(B_HOLD);
-    check(!m.menuOpen && m.cursor == -1, "удержание скрывает меню прямо в комнате");
-    m.tick(240);
-    check(m.menuOffset() == gfx::H - 109, "панель за 240 мс плавно уехала вниз");
-    m.button(B_SHORT);
-    m.tick(80);
-    int beforeReverse = m.menuOffset();
-    m.button(B_HOLD);
-    int afterReverse = m.menuOffset();
-    check(abs(beforeReverse - afterReverse) <= 1,
-          "закрытие посреди анимации не вызывает скачка");
-    m.tick(240);
-    m.button(B_SHORT);
-    m.tick(240);
+    check(!m.menuOpen && !m.infoScreen, "удержание закрывает меню");
+    m.button(B_LONG); m.tick(250);
     m.tick(7000);
-    check(!m.menuOpen && m.cursor == -1,
-          "после 7 секунд без нажатий меню закрывается автоматически");
+    check(!m.menuOpen && m.cursor == -1, "меню закрывается после 7 секунд");
     m.tick(250);
-    check(m.menuOffset() == gfx::H - 109,
-          "после автоскрытия комната снова полностью открыта");
-    // Сохранение питомца не содержит полей анимации, формат Save v4 прежний.
+    check(m.menuOffset() == gfx::H - 109, "панель скрыта после бездействия");
+
+    m.button(B_SHORT);
+    check(m.infoScreen, "информер можно открыть после скрытия меню");
     Save snap = m.s; snap.crc = Game::crc32(&snap, offsetof(Save, crc));
     Game loaded; memset(&loaded.s, 0, sizeof loaded.s);
-    check(loaded.load(snap) && !loaded.menuOpen &&
-          loaded.menuOffset() == gfx::H - 109,
-          "после восстановления питомца меню скрыто, сохранение совместимо");
+    check(loaded.load(snap) && !loaded.infoScreen && !loaded.menuOpen,
+          "информер не изменяет Save v4 и сбрасывается при загрузке");
   }
   // 0.40: используются все 135 пикселей, фон, персонаж и мебель единым слоем.
   {
@@ -778,18 +787,17 @@ int main() {
           fb[oldWy * gfx::W + wx] == oldBefore,
           "погода остаётся внутри сдвинутого окна, не рисуется на старых координатах");
   }
-  // 0.41: совместимый Bluetooth-пакет с точной синхронизацией открытого меню.
+  // Совместимый пакет D|3: поле 54 сообщает, открыт ли экран часов.
   {
     Game board; memset(&board.s, 0, sizeof board.s); board.init(4100); board.demo(0);
     Game phone; memset(&phone.s, 0, sizeof phone.s); phone.init(4101); phone.demo(0);
-    // Во время вылупления яйцо не имеет домашнего меню. Тестируем взрослого Бита.
     board.s.form = JUNIOR; phone.s.form = JUNIOR;
     char packet[640];
     auto sync = [&]() {
       memset(packet, 0, sizeof packet);
       board.command("data", packet, sizeof packet);
       check(strncmp(packet, "D|3|", 4) == 0 && strlen(packet) < sizeof packet - 1,
-            "формат D|3 сохраняется, пакет помещается в BLE буфер");
+            "данные помещаются в BLE-буфер");
       std::vector<int32_t> fields;
       const char* p = packet + 4;
       while (*p) {
@@ -803,60 +811,54 @@ int main() {
       return fields;
     };
     auto idle = sync();
-    check(idle.size() == 54 && idle[50] == 0 && idle[51] == -1,
-          "к прежним 50 полям добавлены четыре состояния меню");
+    check(idle.size() == 55 && idle[50] == 0 && idle[54] == 0,
+          "старые 54 поля неизменны, информер передан 55-м");
     phone.mirror(idle.data(), (int)idle.size());
-    check(!phone.menuOpen && phone.cursor == -1,
-          "закрытое меню одинаково отображается на плате и телефоне");
+    check(!phone.menuOpen && !phone.infoScreen, "телефон повторяет экран питомца");
 
     board.button(B_SHORT);
-    board.tick(90);
+    auto info = sync();
+    check(info.size() == 55 && info[54] == 1 && info[50] == 0,
+          "в BLE передаётся переключение на часы и погоду");
+    phone.mirror(info.data(), (int)info.size());
+    check(phone.infoScreen && !phone.menuOpen, "зеркало телефона показывает информер");
+    board.button(B_SHORT);
+    auto home = sync();
+    phone.mirror(home.data(), (int)home.size());
+    check(!phone.infoScreen, "зеркало возвращается на экран питомца");
+
+    board.button(B_LONG); board.tick(90);
     auto opened = sync();
-    check(opened.size() == 54 && opened[50] == 1 && opened[51] == 0 &&
-          opened[52] == 90 && opened[53] == 90,
-          "Bluetooth передаёт выбранный значок и фазу выдвижения");
+    check(opened.size() == 55 && opened[50] == 1 && opened[51] == 0 &&
+          opened[52] == 90 && opened[53] == 90 && opened[54] == 0,
+          "открытое меню передаёт положение и выбранный значок");
     phone.mirror(opened.data(), (int)opened.size());
     check(phone.menuOpen && phone.cursor == board.cursor &&
-          phone.menuOffset() == board.menuOffset(),
-          "телефон повторяет открытое меню и его положение по вертикали");
-
-    board.button(B_SHORT);
-    board.tick(180);
+          phone.menuOffset() == board.menuOffset() && !phone.infoScreen,
+          "зеркало повторяет открытие меню");
+    board.button(B_SHORT); board.tick(180);
     auto selected = sync();
     phone.mirror(selected.data(), (int)selected.size());
-    check(phone.menuOpen && phone.cursor == 1 &&
-          phone.menuOffset() == board.menuOffset(),
-          "телефон получает переключение значков");
-
-    board.button(B_HOLD);
-    board.tick(100);
+    check(phone.menuOpen && phone.cursor == 1 && phone.menuOffset() == board.menuOffset(),
+          "короткое в меню передаёт выбор следующего действия");
+    board.button(B_HOLD); board.tick(100);
     auto closed = sync();
     phone.mirror(closed.data(), (int)closed.size());
-    check(closed[50] == 0 && closed[52] == 100 &&
-          !phone.menuOpen && phone.menuOffset() == board.menuOffset(),
-          "телефон повторяет плавное закрытие меню");
-    board.tick(180);
-    phone.tick(180);
-    check(board.menuOffset() == phone.menuOffset(),
-          "по завершении перехода у платы и телефона меню скрыто");
+    check(!phone.menuOpen && !phone.infoScreen && phone.menuOffset() == board.menuOffset(),
+          "удержание закрывает меню синхронно");
+    board.tick(180); phone.tick(180);
+    check(board.menuOffset() == phone.menuOffset(), "анимация закрытия синхронна");
 
-    // Приложение 0.19 может получать и прежний пакет из 0.40.
-    board.button(B_SHORT); board.tick(250);
+    board.button(B_LONG); board.tick(250);
     auto legacy = sync();
     phone.mirror(legacy.data(), 50);
-    check(!phone.menuOpen && phone.cursor == -1 && phone.menuOffset() == gfx::H - 109,
-          "старый Bluetooth-пакет из 50 полей безопасно поддерживается");
-
-    // При открытом меню отсчёт бездействия передаётся в прошивку зеркала.
-    board.tick(250);
-    auto again = sync();
-    phone.mirror(again.data(), (int)again.size());
-    check(phone.menuOpen && phone.cursor == 0,
-          "после старого пакета синхронизация восстанавливается");
-    board.tick(7000);
-    phone.tick(7000);
-    check(!board.menuOpen && !phone.menuOpen,
-          "автоскрытие совпадает на обоих устройствах");
+    check(!phone.menuOpen && !phone.infoScreen && phone.cursor == -1,
+          "старый Bluetooth-пакет из 50 полей поддерживается");
+    phone.mirror(legacy.data(), 54);
+    check(phone.menuOpen && !phone.infoScreen,
+          "пакет 0.41 из 54 полей не показывает фиктивный информер");
+    board.tick(7000); phone.tick(7000);
+    check(!board.menuOpen && !phone.menuOpen, "автоскрытие работает на обоих экранах");
   }
   printf(fails ? "\nОшибок: %d\n" : "\nВсё верно\n", fails);
   return fails != 0;

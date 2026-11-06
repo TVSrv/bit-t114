@@ -200,7 +200,7 @@ static void pollButton(bool screenOn, bool& woke) {
   if (pressLatch && !pressed && !btn.down) {  // нажали и отпустили между опросами
     pressLatch = false;
     game.wake();
-    if (!screenOn) woke = true;
+    if (!screenOn) { woke = true; game.wakeToInfo(); }
     else game.button(pet::B_SHORT);
     return;
   }
@@ -208,8 +208,8 @@ static void pollButton(bool screenOn, bool& woke) {
   if (pressed && !btn.down) {
     btn.down = true; btn.held = false; btn.since = t;
     btn.wakeOnly = !screenOn;
-    if (!screenOn) woke = true;
-    game.wake();
+    if (!screenOn) { woke = true; game.wakeToInfo(); }
+    else game.wake();
   } else if (pressed && btn.down) {
     if (!btn.held && !btn.wakeOnly && t - btn.since >= 2000) {
       btn.held = true;

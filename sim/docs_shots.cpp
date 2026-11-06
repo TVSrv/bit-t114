@@ -66,7 +66,7 @@ int main(int argc, char** argv) {
 
   prepare(g, JUNIOR, 12);
   shot(g, dir, "01-home-fullscreen");
-  g.button(B_SHORT);
+  g.button(B_LONG);
   g.tick(120);
   shot(g, dir, "02-menu-sliding");
   g.tick(125);
@@ -85,5 +85,16 @@ int main(int argc, char** argv) {
   prepare(g, SENIOR, 12);
   g.s.bugs = 2;
   shot(g, dir, "08-senior-bugs");
+
+  // Настоящая графика нового экранного режима: 1-й клик из сна -> часы,
+  // 2-й клик -> питомец. Проверяем обе стороны последовательности.
+  prepare(g, JUNIOR, 12);
+  g.tempC = 7;
+  g.weather = 2;  // облачно: погода из подключенного Android
+  g.weatherUntil = g.now + 3600000u;
+  g.wakeToInfo();
+  shot(g, dir, "09-clock-weather-after-wake");
+  g.button(B_SHORT);
+  shot(g, dir, "10-pet-after-second-press");
   return 0;
 }

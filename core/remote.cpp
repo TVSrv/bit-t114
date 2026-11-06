@@ -54,7 +54,7 @@ int Game::command(const char* line, char* out, int n) {
     return sfmt(out, n,
                 "D|3|%d|%d|%u|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%d|%d|%d|%d|%d|%u|%d|%d|%u|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%d"
                 "|%d|%d|%d|%d|%d|%u|%d|%d|%u|%u|%d|%d|%d|%d"
-                "|%d|%d|%u|%u",
+                "|%d|%d|%u|%u|%d",
                 s.form, s.alive, s.ageMin, s.hunger, s.happy, s.energy, s.discipline, s.weight, s.bugs, s.sick, s.doses,
                 s.asleep, s.lightOff, s.callKind, s.epoch, s.clockSource, clockSure ? 1 : 0, s.generation, s.trait, s.favFood,
                 s.favGame, s.totalMeters, s.questsDone, s.friendsMet, s.achievements, s.formsSeen, s.streak, s.bestReactCs,
@@ -67,7 +67,8 @@ int Game::command(const char* line, char* out, int n) {
                 menuOpen && scene == S_HOME ? 1 : 0, scene == S_HOME ? cursor : -1,
                 (unsigned)((now - menuTransitionAt) < MENU_ANIM_MS ?
                     now - menuTransitionAt : MENU_ANIM_MS),
-                (unsigned)((now - cursorMs) < MENU_IDLE_MS ? now - cursorMs : MENU_IDLE_MS));
+                (unsigned)((now - cursorMs) < MENU_IDLE_MS ? now - cursorMs : MENU_IDLE_MS),
+                 infoScreen && scene == S_HOME ? 1 : 0);
   }
 
   if ((a = word(l, "статус")) || (a = word(l, "status"))) {
@@ -258,11 +259,13 @@ void Game::mirror(const int32_t* v, int n) {
     cursor = deviceOpen ? v[51] : -1;
     menuTransitionAt = now - animationAge;
     cursorMs = now - idleAge;
+    infoScreen = n >= 55 && v[54] == 1 && !deviceOpen;
   } else {
     // Старые платы не передают курсор; не имитируем фиктивные нажатия.
     menuOpen = false;
     cursor = -1;
     menuTransitionAt = now - MENU_ANIM_MS;
+    infoScreen = false;
   }
 }
 

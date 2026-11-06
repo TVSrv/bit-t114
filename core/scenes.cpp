@@ -245,18 +245,20 @@ static int callIcon(uint8_t k) {
   }
 }
 
-void Game::drawTopBar(Canvas& c, bool vitals) {
+void Game::drawTopBar(Canvas& c, bool vitals, bool showTime) {
   c.fillRect(0, 0, W, TOP, pal::gutter);
   c.hline(0, TOP - 1, W, pal::line);
-  // справа: батарея и часы
   drawBattery(c, W - 21, 7, batPct, batCharging);
-  char tm[8];
-  sfmt(tm, 8, "%02d:%02d", hourNow(), minNow());
-  int cx = W - 24;
-  // жёлтые часы — время не подтверждено после включения платы
-  c.text(font_ui, cx, 2, tm, !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow), 255, RIGHT);
-  int left = cx - Canvas::width(font_ui, tm) - 6;
-  c.vline(left, 4, 14, pal::line);
+  // На домашнем экране время скрыто: четыре показателя стали заметно шире.
+  int left = W - 27;
+  if (showTime) {
+    char tm[8];
+    sfmt(tm, sizeof tm, "%02d:%02d", hourNow(), minNow());
+    int cx = W - 24;
+    c.text(font_ui, cx, 2, tm, !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow), 255, RIGHT);
+    left = cx - Canvas::width(font_ui, tm) - 6;
+    c.vline(left, 4, 14, pal::line);
+  }
   if (!vitals || s.form == EGG || !s.alive) {
     Color fc = s.form == EGG ? pal::yellow : formColor((Form)s.form);
     c.circle(10, 11, 4, fc);
@@ -817,8 +819,8 @@ void Game::drawToast(Canvas& c) {
   }
 }
 
-// погода на экране: частицы поверх редактора и температура в углу
-// Погода — только за окном: дождь, снег, туман и тучи в стекле; температура — табличкой под окном.
+// Погода в комнате остаётся только художественным эффектом за окном;
+// температура и прогноз теперь показываются на отдельном информационном экране.
 void Game::drawWeather(Canvas& c, bool dark) {
   if (!hasWeather()) return;
   uint32_t t = now;
@@ -870,16 +872,13 @@ void Game::drawWeather(Canvas& c, bool dark) {
   }
   if (dimA) c.fillRect(x0, y0, ww, wh, hex(0x070c1e), dimA);
   c.noClip();
-  // Температура — табличка на стене слева от окна: «z» спящего улетают вправо и её не задевают.
-  char b[12];
-  sfmt(b, sizeof b, "%s%d°", tempC > 0 ? "+" : "", tempC);
-  int w = Canvas::width(font_small, b) + 8;
-  float x = x0 - 7 - w, y = y0 + 2;
-  c.roundRect(x, y, (float)w, 14, 6, pal::ink, 170);
-  c.text(font_small, (int)x + w / 2, (int)y - 1, b, pal::white, 255, CENTER);
 }
 
 void Game::drawHome(Canvas& c) {
+  if (infoScreen) {
+    drawInfoScreen(c);
+    return;
+  }
   bool dark = s.lightOff;
   drawBackground(c, dark);
   static const float slots[] = {210, 186, 34, 58};
@@ -901,16 +900,71 @@ void Game::drawHome(Canvas& c) {
     case HD_BIRTHDAY: { char wk[8]; sfmt(wk, 8, "%u", s.ageMin / 10080); drawCake(c, deco, FLOOR + 2, wk, now); break; }
     default: break;
   }
-  drawWeather(c, dark);  // окно и табличка на стене — за питомцем
+  drawWeather(c, dark);  // атмосферная анимация за окном, без температурной таблички
   drawFriend(c);
   drawPetHome(c);
   if (actionKind != A_NONE && actionKind != A_LIGHT) drawAction(c);
   if (dark) c.fillRect(0, TOP, W, H - TOP, hex(0x0b1838), 70);  // ночная дымка до низа комнаты
   drawParticles(c, now - lastRender);
   if (actionKind == A_LIGHT) drawAction(c);
-  drawTopBar(c, true);
+  drawTopBar(c, true, false);
   drawMenuBar(c);
   if (scene == S_HOME) drawToast(c);
+}
+
+// Полноэкранный информер: состояние погоды не сохраняется и приходит по BLE из Android.
+void Game::drawInfoScreen(Canvas& c) {
+  c.gradientV(0, 0, W, H, hex(0x101b32), hex(0x0b1020));
+  c.roundRect(5, 5, 230, 125, 10, hex(0x283752));
+  c.roundRect(6, 6, 228, 123, 9, hex(0x141f35));
+  c.text(font_ui, 15, 9, "ЧАСЫ И ПОГОДА", pal::cyan);
+  drawBattery(c, W - 21, 15, batPct, batCharging);
+  c.hline(15, 29, 210, hex(0x394863));
+
+  // Дата выводится из локального epoch, уже скорректированного прошивкой.
+  uint32_t day = s.epoch / 86400u;
+  int year = 2000;
+  while (year < 2100) {
+    int length = 365 + ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0 ? 1 : 0);
+    if (day < (uint32_t)length) break;
+    day -= length;
+    year++;
+  }
+  static const uint8_t mdays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  int month = 0;
+  for (; month < 11; ++month) {
+    int length = mdays[month] + (month == 1 && ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0));
+    if (day < (uint32_t)length) break;
+    day -= length;
+  }
+  char b[28];
+  sfmt(b, sizeof b, "%02d.%02d.%04d", (int)day + 1, month + 1, year);
+  c.text(font_small, 16, 36, b, pal::dim);
+
+  c.roundRect(13, 53, 116, 51, 8, hex(0x23344d));
+  sfmt(b, sizeof b, "%02d:%02d", hourNow(), minNow());
+  Color clockColor = !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow);
+  c.textFit(71, 60, b, clockColor, 109, CENTER);
+  // Короткая подсказка к точности времени внутри области даты, без третьей строки под часами.
+  c.circle(122, 43, 3, !s.clockSource ? pal::dim : (clockSure ? pal::green : pal::yellow));
+
+  c.vline(138, 36, 77, hex(0x394863));
+  c.text(font_small, 153, 36, "ЗА ОКНОМ", pal::dim);
+  if (hasWeather()) {
+    const char* desc[] = {"", "Ясно", "Облачно", "Дождь", "Снег", "Гроза", "Туман"};
+    sfmt(b, sizeof b, "%s%d°", tempC > 0 ? "+" : "", (int)tempC);
+    c.text(font_big, 152, 53, b, pal::white);
+    int kind = weather <= 6 ? weather : 0;
+    c.text(font_small, 152, 85, desc[kind], pal::cyan);
+    c.text(font_small, 152, 96, "С телефона", pal::dim);
+  } else {
+    c.text(font_ui, 152, 58, "Нет данных", pal::yellow);
+    c.text(font_small, 152, 82, "Подключите", pal::dim);
+    c.text(font_small, 152, 96, "Android BLE", pal::dim);
+  }
+  c.hline(15, 112, 210, hex(0x394863));
+  c.text(font_small, 16, 114, "Коротко: питомец", pal::fg);
+  c.text(font_small, 224, 114, "Долго: меню", pal::cyan, 255, RIGHT);
 }
 
 // --- списки ---

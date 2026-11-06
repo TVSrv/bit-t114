@@ -181,6 +181,7 @@ class Game {
   void setBattery(int pct, bool charging) { batPct = pct; batCharging = charging; }
   void gpsFeed(const GpsFix& fix);
   void wake() { idleMs = 0; }
+  void wakeToInfo();  // первое нажатие при погашенном дисплее: часы/погода, без игрового действия
 
   // игра -> платформа
   bool wantsGps() const;
@@ -239,6 +240,7 @@ class Game {
   int cursor = -1;
   uint32_t cursorMs = 0;
   bool menuOpen = false;
+  bool infoScreen = false;  // второй домашний экран: часы и погода (не в Save)
   uint32_t menuTransitionAt = 0;
   void closeMenu();
   int menuOffset() const;  // 0 — виден, 26 — целиком за экраном
@@ -375,9 +377,10 @@ class Game {
 
   // отрисовка
   void drawBackground(Canvas& c, bool dark);
-  void drawTopBar(Canvas& c, bool vitals);
+  void drawTopBar(Canvas& c, bool vitals, bool showTime = true);
   void drawMenuBar(Canvas& c);
   void drawHome(Canvas& c);
+  void drawInfoScreen(Canvas& c);
   void drawPetHome(Canvas& c);
   bool artMeal(uint32_t at);
   void drawAction(Canvas& c);

@@ -80,6 +80,7 @@ void Game::init(uint32_t seed) {
   sceneStart = now;
   cursor = -1;
   menuOpen = false;
+  infoScreen = false;
   menuTransitionAt = now - MENU_ANIM_MS;
   nextHobby = now + 45u * 60000u;
   hobbyKind = 0;
@@ -97,6 +98,7 @@ bool Game::load(const Save& saved) {
   sceneStart = now;
   cursor = -1;
   menuOpen = false;
+  infoScreen = false;
   menuTransitionAt = now - MENU_ANIM_MS;
   // После перезагрузки millis() начинается с нуля; старый момент включения
   // ночника не сохраняется. Если Бит уже спит в темноте — запускаем окно заново.
@@ -703,8 +705,17 @@ void Game::closeMenu() {
   cursor = -1;
 }
 
+void Game::wakeToInfo() {
+  idleMs = 0;
+  if (scene == S_HOME) {
+    infoScreen = true;
+    closeMenu();
+  }
+}
+
 void Game::goHome() {
   scene = S_HOME;
+  infoScreen = false;
   closeMenu();
   sceneStart = now;
 }
@@ -882,6 +893,7 @@ void Game::button(Btn b) {
   }
   if (b == B_HOLD && scene == S_DUEL) duelState = 0;
   if (b == B_HOLD && scene == S_HOME) {
+    infoScreen = false;
     closeMenu();
     return;
   }
@@ -892,12 +904,19 @@ void Game::button(Btn b) {
   }
   switch (scene) {
     case S_HOME:
-      if (actionKind != A_NONE && actionKind != A_POOP) return;
-      if (b == B_SHORT || b == B_LONG) {
+      // Скрытая панель: короткое нажатие переключает питомца и информер.
+      // Долгое открывает меню; в нём короткое листает, долгое подтверждает.
+      if (!menuOpen && b == B_SHORT) {
+        infoScreen = !infoScreen;
+        break;
+      }
+      if (actionKind != A_NONE && actionKind != A_POOP && !infoScreen) return;
+      if (b == B_LONG || (menuOpen && b == B_SHORT)) {
         if (!menuOpen) {
+          infoScreen = false;
           menuOpen = true;
           cursor = 0;
-          // Переход из ещё не завершённого скрытия — без скачка позиции.
+          // Сохраняем положение панели при смене направления анимации.
           uint32_t elapsed = now - menuTransitionAt;
           menuTransitionAt = elapsed < MENU_ANIM_MS ?
               now - (MENU_ANIM_MS - elapsed) : now;
@@ -1108,6 +1127,7 @@ void Game::demo(int what) {
   s.alive = 1; s.sick = 0; s.bugs = 0; s.asleep = 0; s.lightOff = 0;
   s.hunger = 80; s.happy = 80; s.energy = 80; s.callKind = 0;
   scene = S_HOME; actionKind = A_NONE; cursor = -1;
+  infoScreen = false;
   menuOpen = false; menuTransitionAt = now - MENU_ANIM_MS;
   for (auto& p : parts) p.life = 0;
   toastUntil = 0;
