@@ -216,7 +216,7 @@ int main() {
     b.command("data", out, sizeof out);
     printf("     > data → %s\n", out);
     int fields = 0; for (char* p = out; *p; p++) if (*p == '|') fields++;
-    check(strncmp(out, "D|3|", 4) == 0 && fields == 55, "«data» — 54 поля питомца и меню (старые индексы сохранены)");
+    check(strncmp(out, "D|3|", 4) == 0 && fields == 56, "«data» — 55 полей питомца и информера (старые индексы сохранены)");
     b.command("абракадабра", out, sizeof out);
     check(strstr(out, "Не знаю") != nullptr, "неизвестная команда — подсказка");
   }
