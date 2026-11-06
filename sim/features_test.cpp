@@ -1048,6 +1048,43 @@ int main() {
         if (petLow[y * gfx::W + x] != fb[y * gfx::W + x])
           numericBatteryChanged = true;
     check(numericBatteryChanged, "заряд в процентах выводится рядом с батареей на экране питомца");
+    // Every HUD card must respond independently to its own metric without
+    // spilling into neighbours or into the room below y=22.
+    m.s.form = JUNIOR;
+    m.s.hunger = 70; m.s.happy = 70; m.s.energy = 70; m.s.discipline = 70;
+    m.s.callKind = C_NONE;
+    cv.clear(pal::bg);
+    m.drawTopBar(cv, true, false);
+    std::vector<gfx::Color> neutral(fb, fb + gfx::W * gfx::H);
+    bool cardsOk = true;
+    const int cardStarts[] = {2, 43, 84, 125};
+    for (int metric = 0; metric < 4; ++metric) {
+      m.s.hunger = 70; m.s.happy = 70; m.s.energy = 70; m.s.discipline = 70;
+      if (metric == 0) m.s.hunger = 0;
+      if (metric == 1) m.s.happy = 0;
+      if (metric == 2) m.s.energy = 0;
+      if (metric == 3) m.s.discipline = 0;
+      cv.clear(pal::bg);
+      m.drawTopBar(cv, true, false);
+      bool ownChanged = false;
+      for (int y = 0; y < gfx::H; ++y)
+        for (int x = 0; x < gfx::W; ++x)
+          if (fb[y * gfx::W + x] != neutral[y * gfx::W + x]) {
+            if (x >= cardStarts[metric] && x < cardStarts[metric] + 39 && y < 22)
+              ownChanged = true;
+            else cardsOk = false;
+          }
+      if (!ownChanged) cardsOk = false;
+    }
+    check(cardsOk, "все четыре HUD-карточки независимы и не задевают соседние индикаторы");
+    m.s.hunger = 70; m.s.happy = 70; m.s.energy = 70; m.s.discipline = 70;
+    m.setBattery(100, true);
+    cv.clear(pal::bg); m.drawTopBar(cv, true, false);
+    bool largeBatteryShown = false;
+    for (int y = 5; y < 17; ++y)
+      for (int x = 211; x < 235; ++x)
+        if (fb[y * gfx::W + x] != neutral[y * gfx::W + x]) largeBatteryShown = true;
+    check(largeBatteryShown, "крупная батарея отображает уровень и зарядку в единой карточке");
   }
   printf(fails ? "\nОшибок: %d\n" : "\nВсё верно\n", fails);
   return fails != 0;

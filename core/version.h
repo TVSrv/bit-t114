@@ -1,3 +1,3 @@
 // Версия прошивки: показывается в приложении (команда «версия»). Менять при каждом выпуске.
 #pragma once
-#define BIT_VERSION "0.43.7-live-mirror"
+#define BIT_VERSION "0.43.8-unified-hud-mirror"

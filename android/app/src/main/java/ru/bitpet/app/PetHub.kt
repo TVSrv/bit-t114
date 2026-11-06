@@ -52,6 +52,11 @@ object PetHub {
         private set
 
     val pet = MutableStateFlow<PetState?>(null)
+    val mirrorFrame = MutableStateFlow<IntArray?>(null)
+    private val mirrorTiles = MirrorTiles()
+    var mirrorWanted = false
+    private var mirrorSupported: Boolean? = null
+    private var lastMirrorRenew = 0L
     val log = MutableStateFlow<List<LogLine>>(emptyList())
     val found = MutableStateFlow<List<Found>>(emptyList())
     val scanning = MutableStateFlow(false)
@@ -94,8 +99,19 @@ object PetHub {
         scope.launch { link.lines.collect { onLine(it) } }
         scope.launch {
             link.state.collect { st ->
-                if (st == BitLink.State.READY) onReady()
-                if (st == BitLink.State.IDLE) scheduleReconnect()
+                if (st == BitLink.State.READY) {
+                    mirrorTiles.clear()
+                    mirrorFrame.value = null
+                    mirrorSupported = null
+                    lastMirrorRenew = 0
+                    onReady()
+                }
+                if (st == BitLink.State.IDLE) {
+                    mirrorTiles.clear()
+                    mirrorFrame.value = null
+                    mirrorSupported = null
+                    scheduleReconnect()
+                }
             }
         }
         scope.launch { pollLoop() }
@@ -190,6 +206,7 @@ object PetHub {
             }
             request("версия")?.takeIf { it.startsWith("V|") }?.let { firmware.value = it.removePrefix("V|") }
             request("ник")?.takeIf { it.startsWith("N|") }?.let { nick.value = it.removePrefix("N|") }
+            if (uiVisible && mirrorWanted) renewMirror()
             weatherNow.value?.let { pushWeather(it) } ?: sendWeather()
             refresh()
         }
@@ -204,7 +221,7 @@ object PetHub {
         link.sendLine(cmd)
         val r = withTimeoutOrNull(timeoutMs) { d.await() }
         pending = null
-        if (cmd != "data") addLog(LogLine(System.currentTimeMillis(), "> $cmd\n${r ?: "нет ответа"}", false))
+        if (cmd != "data" && !cmd.startsWith("mirror ")) addLog(LogLine(System.currentTimeMillis(), "> $cmd\n${r ?: "нет ответа"}", false))
         r
     }
 
@@ -305,8 +322,7 @@ object PetHub {
             weatherSync.value = "Базовая погода не принята: ${basic ?: "нет ответа"}"
             return
         }
-        // Probe the actual WX capability instead of relying on a version prefix.
-        // This also supports all future 0.44+, 1.x and other firmware versions.
+        // Probe WX support directly; remains compatible with firmware 0.44+.
         val wx = request("wx ${w.humidity} ${w.windMs} ${w.feels} ${w.pressureMm} ${w.precipitation}")
         if (wx != "WX|1") {
             weatherSync.value = "Дополнительная погода не принята: ${wx ?: "нет ответа"}"
@@ -346,16 +362,28 @@ object PetHub {
         }
     }
 
+    private suspend fun renewMirror() {
+        if (mirrorSupported == false || !uiVisible || !mirrorWanted) return
+        lastMirrorRenew = System.currentTimeMillis()
+        // Old firmware reports an unknown command; keep the native renderer.
+        mirrorSupported = request("mirror 1", 2500) == "M|1"
+    }
+
     private suspend fun pollLoop() {
         while (scope.isActive) {
-            delay(1000)  // раз в секунду: питомец на телефоне идёт туда же и делает то же, что на плате
+            delay(1000)
             if (link.state.value != BitLink.State.READY) continue
-            // экран открыт — каждую секунду; в фоне — раз в минуту (виджет и история)
+            if (uiVisible && mirrorWanted &&
+                System.currentTimeMillis() - lastMirrorRenew > 8000) renewMirror()
             if (uiVisible || System.currentTimeMillis() - lastRefresh > 60_000) refresh()
         }
     }
 
     private fun onLine(line: String) {
+        if (line.startsWith("F|")) {
+            mirrorTiles.accept(line)?.let { mirrorFrame.value = it }
+            return
+        }
         if (line.startsWith("» ")) { onEvent(line.removePrefix("» ")); return }
         pending?.complete(line)
     }

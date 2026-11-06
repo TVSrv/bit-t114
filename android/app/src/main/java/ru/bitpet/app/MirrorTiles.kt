@@ -64,7 +64,7 @@ internal class MirrorTiles {
                 r = r or (r shr 5)
                 g = g or (g shr 6)
                 b = b or (b shr 5)
-                pixels[row + x] = (0xff000000 or (r shl 16) or (g shl 8) or b).toInt()
+                pixels[row + x] = (0xff000000.toInt() or (r shl 16) or (g shl 8) or b)
             }
         }
         if (!seen[id]) {

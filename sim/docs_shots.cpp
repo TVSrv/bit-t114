@@ -207,5 +207,18 @@ int main(int argc, char** argv) {
   g.weather = 0; g.weatherUntil = 0;
   g.weatherExtraUntil = 0; g.forecastCount = 0;
   shot(g, dir, "48-info-weather-no-data");
+
+  // Visually inspect redesigned unified status header with battery at 3 levels.
+  prepare(g, JUNIOR, 12);
+  g.s.hunger = 94; g.s.happy = 78; g.s.energy = 61; g.s.discipline = 85;
+  g.setBattery(87, false);
+  shot(g, dir, "49-hud-unified-healthy");
+  g.setBattery(19, false);
+  shot(g, dir, "50-hud-unified-low-battery");
+  g.setBattery(100, true);
+  shot(g, dir, "51-hud-unified-charging");
+  g.s.hunger = 12; g.s.happy = 25; g.s.energy = 15; g.s.discipline = 40;
+  g.s.callKind = C_HUNGER; g.setBattery(7, false);
+  shot(g, dir, "52-hud-unified-alert");
   return 0;
 }

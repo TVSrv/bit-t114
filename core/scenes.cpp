@@ -259,6 +259,57 @@ static int callIcon(uint8_t k) {
 }
 
 void Game::drawTopBar(Canvas& c, bool vitals, bool showTime) {
+  // Five cohesive compact HUD cards. 4 equal status metrics + one wide
+  // battery tile with a large percentage AND a readable charge indicator.
+  // The 240x135 screen has only 22 header pixels, so every card uses the
+  // same baseline, padding and rounded frame. Content never enters the room.
+  if (vitals && !showTime && s.form != EGG && s.alive) {
+    c.fillRect(0, 0, W, TOP, pal::gutter);
+    const int values[4] = {s.hunger, s.happy, s.energy, s.discipline};
+    const Color colors[4] = {pal::orange, pal::pink, pal::yellow, pal::blue};
+    const bool alerts[4] = {
+      s.callKind == C_HUNGER, s.callKind == C_HAPPY,
+      s.energy < 15 && !s.asleep, s.callKind == C_FAKE
+    };
+    for (int i = 0; i < 4; ++i) {
+      const int x = 2 + i * 41;
+      const int v = clampi(values[i], 0, 100);
+      const Color accent = alerts[i] || v < 25 ? pal::red : colors[i];
+      c.roundRect(x, 1, 39, 20, 4, pal::line);
+      c.roundRect(x + 1, 2, 37, 18, 3, pal::editor);
+      // All glyphs and percentages share the same size and baseline.
+      if (i == 0) drawIcon(c, I_FOOD, x + 8, 9.5f, accent, now, 0.55f);
+      if (i == 1) drawHeart(c, x + 8, 9.5f, 1.1f, accent);
+      if (i == 2) drawBolt(c, x + 8, 9.5f, 1.0f, accent);
+      if (i == 3) drawIcon(c, I_REVIEW, x + 8, 9.5f, accent, now, 0.55f);
+      char value[8];
+      sfmt(value, sizeof value, "%d%%", v);
+      c.text(font_small, x + 36, 3, value, pal::white, 255, RIGHT);
+      c.roundRect(x + 4, 16, 31, 2, 1, pal::gutter);
+      if (v) c.roundRect(x + 4, 16, 31.0f * v / 100, 2, 1, accent);
+      if (alerts[i]) c.hline(x + 4, 19, 31, pal::red);
+    }
+
+    const int x = 167;
+    const int percent = clampi(batPct, 0, 100);
+    const Color chargeColor = batCharging ? pal::green :
+                              (percent <= 15 ? pal::red : (percent <= 40 ? pal::yellow : pal::green));
+    c.roundRect(x, 1, 71, 20, 4, pal::line);
+    c.roundRect(x + 1, 2, 69, 18, 3, pal::editor);
+    char value[8];
+    sfmt(value, sizeof value, "%d%%", percent);
+    c.text(font_ui, x + 42, 2, value, chargeColor, 255, RIGHT);
+
+    // Enlarged 23x12 battery, in the same capsule as the numeric readout.
+    const int bx = x + 44, by = 5;
+    c.roundRect(bx, by, 21, 12, 2, pal::fg);
+    c.roundRect(bx + 1, by + 1, 19, 10, 1, pal::gutter);
+    c.fillRect(bx + 21, by + 4, 3, 4, pal::fg);
+    int filled = (17 * percent + 50) / 100;
+    if (filled > 0) c.roundRect(bx + 2, by + 2, filled, 8, 1, chargeColor);
+    if (batCharging) drawBolt(c, bx + 11, by + 6, 0.8f, pal::white);
+    return;
+  }
   c.fillRect(0, 0, W, TOP, pal::gutter);
   c.hline(0, TOP - 1, W, pal::line);
   // В обычном домашнем экране показываем точный процент заряда рядом с
