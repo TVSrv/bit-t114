@@ -664,7 +664,7 @@ int main() {
           resumed.s.stageMin == 0 && resumed.s.ageMin == saved.ageMin,
           "новые сроки сохраняют совместимость с прежним Save v4");
   }
-  // Экран информера: одно короткое нажатие переключает экран, долгое открывает меню.
+  // Экран информера: часы только после пробуждения, второе нажатие — питомец.
   {
     Game m; memset(&m.s, 0, sizeof m.s); m.init(1001); m.demo(0);
     check(m.scene == S_HOME && !m.infoScreen && !m.menuOpen &&
@@ -686,12 +686,12 @@ int main() {
     check(!m.infoScreen && !m.menuOpen && m.scene == S_HOME,
           "второе нажатие после пробуждения показывает питомца");
 
-    m.button(B_SHORT);
-    check(m.infoScreen && !m.menuOpen && m.scene == S_HOME,
-          "когда экран уже включён, короткое показывает информер");
+    for (int click = 0; click < 5; ++click) {
+      m.button(B_SHORT);
+      check(!m.infoScreen && !m.menuOpen && m.scene == S_HOME,
+            "повторное короткое на экране питомца НЕ открывает часы");
+    }
     m.render(cv);
-    m.button(B_SHORT);
-    check(!m.infoScreen && !m.menuOpen, "следующее короткое возвращает питомца");
 
     m.button(B_LONG);
     check(m.menuOpen && m.cursor == 0 && m.menuOffset() == gfx::H - 109,
@@ -710,7 +710,8 @@ int main() {
     check(m.scene == S_HOME && !m.infoScreen && !m.menuOpen,
           "удержание возвращает на экран питомца");
 
-    m.button(B_SHORT);
+    m.wakeToInfo();  // имитация следующего пробуждения после автопогашения
+    check(m.infoScreen, "новое пробуждение вновь открывает часы");
     m.button(B_LONG);
     check(m.menuOpen && !m.infoScreen && m.cursor == 0,
           "с экрана часов долгое открывает меню, не оставляя информер поверх");
@@ -724,7 +725,9 @@ int main() {
     check(m.menuOffset() == gfx::H - 109, "панель скрыта после бездействия");
 
     m.button(B_SHORT);
-    check(m.infoScreen, "информер можно открыть после скрытия меню");
+    check(!m.infoScreen, "после закрытия меню короткое НЕ вызывает часы");
+    m.wakeToInfo();
+    check(m.infoScreen, "часы доступны только после нового пробуждения");
     Save snap = m.s; snap.crc = Game::crc32(&snap, offsetof(Save, crc));
     Game loaded; memset(&loaded.s, 0, sizeof loaded.s);
     check(loaded.load(snap) && !loaded.infoScreen && !loaded.menuOpen,
@@ -852,7 +855,7 @@ int main() {
     phone.mirror(idle.data(), (int)idle.size());
     check(!phone.menuOpen && !phone.infoScreen, "телефон повторяет экран питомца");
 
-    board.button(B_SHORT);
+    board.wakeToInfo();  // на плате вызывается только при пробуждении дисплея
     auto info = sync();
     check(info.size() == 79 && info[54] == 1 && info[50] == 0,
           "в BLE передаётся переключение на часы и погоду");
@@ -862,6 +865,11 @@ int main() {
     auto home = sync();
     phone.mirror(home.data(), (int)home.size());
     check(!phone.infoScreen, "зеркало возвращается на экран питомца");
+    board.button(B_SHORT);
+    auto later = sync();
+    phone.mirror(later.data(), (int)later.size());
+    check(!board.infoScreen && !phone.infoScreen,
+          "последующие короткие на плате и Android не включают часы");
 
     board.button(B_LONG); board.tick(90);
     auto opened = sync();
@@ -910,6 +918,60 @@ int main() {
           "пакет 0.41 из 54 полей не показывает фиктивный информер");
     board.tick(7000); phone.tick(7000);
     check(!board.menuOpen && !phone.menuOpen, "автоскрытие работает на обоих экранах");
+  }
+
+  // Сравниваем пиксели лица с базовым спрайтом для всех доступных
+  // купленных шапок/колпака и достижений на девяти формах.
+  {
+    bool facesClear = true, sleepingClear = true;
+    const uint8_t hats[] = {1, 2, 3, 4, 5, 6, 20};
+    const uint8_t accessories[] = {
+      ACC_SCARF, ACC_MEDAL, ACC_STAR, ACC_CROWN,
+      (uint8_t)(ACC_SCARF | ACC_MEDAL | ACC_STAR | ACC_CROWN)
+    };
+    for (int form = BABY; form <= AI; ++form) {
+      const artdata::Sprite& sp = artdata::FORM[form];
+      Pose p; p.x = 120; p.y = 120; p.t = 6000;
+      p.eyes = E_HAPPY; p.mouth = M_OPEN; p.blush = true;
+      cv.clear(pal::bg);
+      drawPet(cv, (Form)form, p);
+      std::vector<gfx::Color> baseline(fb, fb + gfx::W * gfx::H);
+      auto sameFace = [&]() {
+        const uint8_t* areas[] = {sp.eye[0], sp.eye[1], sp.mouth};
+        for (int k = 0; k < 3; ++k) {
+          const uint8_t* box = areas[k];
+          if (!box[2]) continue;
+          int x0 = 120 - sp.w / 2 + box[0] - 1;
+          int x1 = 120 - sp.w / 2 + box[2] + 2;
+          int y0 = 120 - sp.h + box[1] - 1;
+          int y1 = 120 - sp.h + box[3] + 2;
+          for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+              if (x >= 0 && x < gfx::W && y >= 0 && y < gfx::H &&
+                  baseline[y * gfx::W + x] != fb[y * gfx::W + x]) return false;
+        }
+        return true;
+      };
+      for (uint8_t hat : hats) {
+        p.hat = hat; p.acc = 0;
+        cv.clear(pal::bg); drawPet(cv, (Form)form, p);
+        if (!sameFace()) facesClear = false;
+      }
+      p.hat = 0;
+      for (uint8_t a : accessories) {
+        p.acc = a;
+        cv.clear(pal::bg); drawPet(cv, (Form)form, p);
+        if (!sameFace()) facesClear = false;
+      }
+      p.sleeping = true; p.acc = 0;
+      cv.clear(pal::bg); drawPet(cv, (Form)form, p);
+      std::vector<gfx::Color> sleeping(fb, fb + gfx::W * gfx::H);
+      p.acc = ACC_SCARF | ACC_MEDAL | ACC_STAR | ACC_CROWN;
+      cv.clear(pal::bg); drawPet(cv, (Form)form, p);
+      if (memcmp(sleeping.data(), fb, sizeof fb) != 0) sleepingClear = false;
+    }
+    check(facesClear, "9 форм × 7 шапок и 5 наборов наград: пиксели глаз и рта целы");
+    check(sleepingClear, "аксессуары спящего не проступают поверх одеяла");
   }
   printf(fails ? "\nОшибок: %d\n" : "\nВсё верно\n", fails);
   return fails != 0;

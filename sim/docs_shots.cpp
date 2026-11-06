@@ -110,5 +110,56 @@ int main(int argc, char** argv) {
   shot(g, dir, "09-clock-weather-after-wake");
   g.button(B_SHORT);
   shot(g, dir, "10-pet-after-second-press");
+  g.button(B_SHORT);
+  if (g.infoScreen) { fprintf(stderr, "unexpected weather screen after pet\n"); return 1; }
+
+  // Настоящие кадры всех шапок, наград, праздников и девяти форм.
+  static const uint8_t hats[] = {1, 2, 3, 4, 5, 6, 20};
+  static const char* hatNames[] = {
+    "11-hat-beanie", "12-hat-cap", "13-hat-tophat", "14-hat-cowboy",
+    "15-hat-wizard", "16-hat-catears", "17-hat-newyear"
+  };
+  for (int i = 0; i < 7; ++i) {
+    prepare(g, (Form)(BABY + i), 12);
+    g.s.hat = hats[i] == 20 ? 0 : hats[i];
+    if (hats[i] == 20)
+      g.s.epoch = daysFrom2000(2026, 12, 31) * 86400u + 12 * 3600u;
+    shot(g, dir, hatNames[i]);
+  }
+  static const int bits[] = {ACH_KM1, ACH_WEEK, ACH_GAMER, ACH_COLLECTOR};
+  static const char* badgeNames[] = {
+    "18-achievement-scarf", "19-achievement-medal",
+    "20-achievement-star", "21-achievement-crown"
+  };
+  for (int i = 0; i < 4; ++i) {
+    prepare(g, (Form)(BABY + i), 12);
+    g.s.achievements = (uint32_t)1 << bits[i];
+    shot(g, dir, badgeNames[i]);
+  }
+  static const char* holidays[] = {
+    "22-holiday-tree", "23-holiday-programmer",
+    "24-holiday-pumpkin", "25-holiday-birthday"
+  };
+  const int hm[] = {12, 9, 10, 11}, hd[] = {31, 13, 31, 6};
+  for (int i = 0; i < 4; ++i) {
+    prepare(g, JUNIOR, 12);
+    g.s.epoch = daysFrom2000(2026, hm[i], hd[i]) * 86400u + 12 * 3600u;
+    if (i == 3) g.s.ageMin = 7 * 1440;
+    shot(g, dir, holidays[i]);
+  }
+  static const char* allNames[] = {
+    "26-baby-all", "27-junior-all", "28-middle-all",
+    "29-freelancer-all", "30-senior-all", "31-architect-all",
+    "32-hacker-all", "33-legacy-all", "34-ai-all"
+  };
+  for (int i = 0; i < 9; ++i) {
+    prepare(g, (Form)(BABY + i), 12);
+    g.s.achievements = ((uint32_t)1 << ACH_KM1) |
+                       ((uint32_t)1 << ACH_WEEK) |
+                       ((uint32_t)1 << ACH_GAMER) |
+                       ((uint32_t)1 << ACH_COLLECTOR);
+    g.s.hat = i % 2 == 0 ? 0 : (i % 6 + 1);
+    shot(g, dir, allNames[i]);
+  }
   return 0;
 }

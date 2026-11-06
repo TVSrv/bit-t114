@@ -287,23 +287,28 @@ void drawPet(Canvas& c, Form f, const Pose& p) {
     }
   }
 
-  // аксессуары за достижения
-  if (f != GHOST) {
-    // У персонажей с артов лицо доходит почти до ног, поэтому шарф — тонкий пояс над ногами,
-    // а медаль и звезда висят на нём по бокам, лица не касаются.
+  // Награды не должны скрывать глаза и рот: у младших форм рот
+  // расположен непосредственно над ногами. Поэтому шарф обнимает бока,
+  // а значки крепятся к его краям, не закрывая центральную часть лица.
+  // Во сне награды не проступают сквозь одеяло.
+  if (f != GHOST && !p.sleeping) {
     float waist = sp.leg[0][2] ? b.Y(sp.leg[0][1] + 1.5f) : by - bh * 0.1f;
-    float hw = bw * 0.3f;
+    float side = bw * 0.43f;
     if (p.acc & ACC_SCARF) {
-      c.roundRect(cx - hw, waist - 1.5f * s, hw * 2, 3 * s, 1.5f * s, hex(0xd9455a), A);
-      for (int i = -2; i <= 2; i++) c.pixel((int)(cx + i * hw * 0.4f), (int)waist, pal::white, A * 150 >> 8);
-      c.roundRect(cx + hw * 0.5f, waist, 2.5f * s, 5 * s, 1.2f * s, hex(0xb8364a), A);
+      const Color red = hex(0xd9455a), trim = hex(0xffb9bd);
+      c.roundRect(cx - side - 2.2f * s, waist - 2.1f * s, 4.4f * s, 4.2f * s, 1.4f * s, red, A);
+      c.roundRect(cx + side - 2.2f * s, waist - 2.1f * s, 4.4f * s, 4.2f * s, 1.4f * s, red, A);
+      c.roundRect(cx - side - 1.2f * s, waist + 0.4f * s, 2.3f * s, 5.0f * s, 1.0f * s, hex(0xb8364a), A);
+      c.pixel((int)(cx - side), (int)(waist - 0.8f * s), trim, A);
+      c.pixel((int)(cx + side), (int)(waist - 0.8f * s), trim, A);
     }
     if (p.acc & ACC_MEDAL) {
-      float mx = cx - hw * 0.75f, my = waist + 1.5f * s;
-      c.circle(mx, my, 2.4f * s, hex(0xb8860b), A);
-      c.circle(mx, my, 1.7f * s, hex(0xf5c542), A);
+      float mx = cx - side, my = waist + 1.1f * s;
+      c.circle(mx, my, 2.1f * s, hex(0xb8860b), A);
+      c.circle(mx, my, 1.4f * s, hex(0xf5c542), A);
     }
-    if (p.acc & ACC_STAR) drawStar(c, cx + hw * 0.15f, waist + 1.5f * s, 1.1f * s, hex(0xf5c542), A);
+    if (p.acc & ACC_STAR)
+      drawStar(c, cx + side, waist + 1.1f * s, 0.95f * s, hex(0xf5c542), A);
   }
   float top = b.Y(sp.head) + 1;
   if (hatOn) {

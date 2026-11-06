@@ -39,7 +39,7 @@ jobs:
                   target / (ppm.stem + ".png"), format="PNG", optimize=True
               )
               names.append(ppm.stem)
-          assert len(names) == 10, names
+          assert len(names) == 34, names
           print("Accurate images rendered from source:", names)
           PY
       - name: Upload visual proof
@@ -53,7 +53,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/screenshots/09-clock-weather-after-wake.png docs/screenshots/10-pet-after-second-press.png
+          git add docs/screenshots/*.png
           if git diff --cached --quiet; then
             echo "Pixel screenshots unchanged"
           else

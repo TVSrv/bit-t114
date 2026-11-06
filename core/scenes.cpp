@@ -893,7 +893,12 @@ void Game::drawHome(Canvas& c) {
   switch (holiday()) {  // праздник — украшение в углу
     case HD_NEWYEAR:
       drawTree(c, deco, FLOOR + 2, now);
-      if ((now / 120) % 2 == 0) spawn(4, (float)(rndInt(W)), (float)TOP, (rndInt(10) - 5), 18, 4.5f, pal::white);  // снег
+      // Снежинки позади питомца, чтобы не закрывать лицо и шапки.
+      for (int i = 0; i < 18; ++i) {
+        int x = (i * 53 + (int)(now / 52) + i * i * 7) % W;
+        int y = TOP + 2 + (i * 19 + (int)(now / 92)) % (FLOOR - TOP - 4);
+        c.circle((float)x, (float)y, 0.8f, pal::white, 135);
+      }
       break;
     case HD_PROGRAMMER: drawCake(c, deco, FLOOR + 2, "256", now); break;
     case HD_HALLOWEEN: drawPumpkin(c, deco, FLOOR + 2, now); break;

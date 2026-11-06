@@ -906,10 +906,11 @@ void Game::button(Btn b) {
   }
   switch (scene) {
     case S_HOME:
-      // Скрытая панель: короткое нажатие переключает питомца и информер.
-      // Долгое открывает меню; в нём короткое листает, долгое подтверждает.
+      // Часы показываются только при пробуждении из сна.
+      // Второе короткое открывает питомца; следующие короткие ничего не меняют.
+      // Долгое открывает меню, а короткое в открытом меню листает пункты.
       if (!menuOpen && b == B_SHORT) {
-        infoScreen = !infoScreen;
+        if (infoScreen) infoScreen = false;
         break;
       }
       if (actionKind != A_NONE && actionKind != A_POOP && !infoScreen) return;
