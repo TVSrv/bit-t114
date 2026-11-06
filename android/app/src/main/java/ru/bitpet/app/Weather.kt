@@ -15,7 +15,7 @@ object Weather {
     data class Hour(val hour: Int, val temp: Int, val kind: Int)
     data class Now(
         val kind: Int, val temp: Int,
-        val humidity: Int = -1, val windMs: Int = -1, val feels: Int = -1,
+        val humidity: Int = -1, val windMs: Int = -1, val feels: Int = -99,
         val pressureMm: Int = -1, val precipitation: Int = -1,
         val hourly: List<Hour> = emptyList()
     )
@@ -71,7 +71,7 @@ object Weather {
             temp = cur.getDouble("temperature_2m").roundToInt().coerceIn(-60, 70),
             humidity = number(cur, "relative_humidity_2m").takeIf { it in 0..100 } ?: -1,
             windMs = number(cur, "wind_speed_10m").takeIf { it in 0..99 } ?: -1,
-            feels = number(cur, "apparent_temperature").takeIf { it in -60..70 } ?: -1,
+            feels = cur.optDouble("apparent_temperature", Double.NaN).takeIf { it.isFinite() }?.roundToInt()?.takeIf { it in -60..70 } ?: -99,
             pressureMm = if (pressureHpa.isFinite()) (pressureHpa * 0.750061683).roundToInt().takeIf { it in 500..900 } ?: -1 else -1,
             precipitation = if (closest >= 0) pop?.optInt(closest, -1)?.takeIf { it in 0..100 } ?: -1 else -1,
             hourly = points
