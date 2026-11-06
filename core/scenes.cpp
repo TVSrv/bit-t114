@@ -945,8 +945,8 @@ void Game::drawInfoScreen(Canvas& c) {
   sfmt(b, sizeof b, "%02d:%02d", hourNow(), minNow());
   Color clockColor = !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow);
   c.textFit(71, 60, b, clockColor, 109, CENTER);
-  c.text(font_small, 17, 108, !s.clockSource ? "Установите часы" :
-         (clockSure ? "Время проверено" : "Часы не сверены"), clockSure ? pal::green : pal::yellow);
+  // Короткая подсказка к точности времени внутри области даты, без третьей строки под часами.
+  c.circle(122, 43, 3, !s.clockSource ? pal::dim : (clockSure ? pal::green : pal::yellow));
 
   c.vline(138, 36, 77, hex(0x394863));
   c.text(font_small, 153, 36, "ЗА ОКНОМ", pal::dim);
@@ -956,15 +956,15 @@ void Game::drawInfoScreen(Canvas& c) {
     c.text(font_big, 152, 53, b, pal::white);
     int kind = weather <= 6 ? weather : 0;
     c.text(font_small, 152, 85, desc[kind], pal::cyan);
-    c.text(font_small, 152, 103, "С телефона", pal::dim);
+    c.text(font_small, 152, 96, "С телефона", pal::dim);
   } else {
     c.text(font_ui, 152, 58, "Нет данных", pal::yellow);
     c.text(font_small, 152, 82, "Подключите", pal::dim);
     c.text(font_small, 152, 96, "Android BLE", pal::dim);
   }
-  c.hline(15, 117, 210, hex(0x394863));
-  c.text(font_small, 16, 120, "Коротко: питомец", pal::fg);
-  c.text(font_small, 224, 120, "Долго: меню", pal::cyan, 255, RIGHT);
+  c.hline(15, 112, 210, hex(0x394863));
+  c.text(font_small, 16, 114, "Коротко: питомец", pal::fg);
+  c.text(font_small, 224, 114, "Долго: меню", pal::cyan, 255, RIGHT);
 }
 
 // --- списки ---
