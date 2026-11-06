@@ -2,7 +2,7 @@ name: Build Tamagotchi
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'experiment/pet-clock-weather-screen']
   workflow_dispatch:
 
 permissions:
