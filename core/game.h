@@ -368,7 +368,17 @@ class Game {
   uint8_t weather = 0;               // 0 нет, 1 ясно, 2 облачно, 3 дождь, 4 снег, 5 гроза, 6 туман
   int8_t tempC = 0;
   uint32_t weatherUntil = 0;
+  // Расширенный прогноз приходит из Android по BLE, без записи в Save v4.
+  // Значение 255 означает, что поле отсутствует в источнике.
+  uint8_t humidityPct = 255, windMs = 255, precipitationPct = 255;
+  int8_t feelsC = 0;
+  uint16_t pressureMm = 0;
+  struct ForecastHour { uint8_t hour = 0, kind = 0; int8_t temp = 0; };
+  ForecastHour forecast[6] = {};
+  uint8_t forecastCount = 0;
+  uint32_t weatherExtraUntil = 0;
   bool hasWeather() const { return weather && now < weatherUntil; }
+  bool hasWeatherExtra() const { return hasWeather() && weatherExtraUntil && now < weatherExtraUntil; }
   void drawWeather(Canvas& c, bool dark);
   void holidayCheck();
   uint8_t confirmMode = 0;
