@@ -787,6 +787,42 @@ int main() {
           fb[oldWy * gfx::W + wx] == oldBefore,
           "погода остаётся внутри сдвинутого окна, не рисуется на старых координатах");
   }
+  // 0.43: расширенная погода, шесть часов прогноза и отсутствие фиктивных данных.
+  {
+    Game w; memset(&w.s, 0, sizeof w.s); w.init(43043); w.demo(0);
+    char response[96];
+    check(!w.hasWeatherExtra() && w.forecastCount == 0,
+          "нет расширенного прогноза до подключения смартфона");
+    w.command("погода 2 7", response, sizeof response);
+    check(w.hasWeather() && !w.hasWeatherExtra(),
+          "базовая погода 0.41 продолжает работать");
+    w.command("wx 76 3 5 754 10", response, sizeof response);
+    check(strcmp(response, "WX|1") == 0 && w.hasWeatherExtra() &&
+          w.humidityPct == 76 && w.windMs == 3 && w.feelsC == 5 &&
+          w.pressureMm == 754 && w.precipitationPct == 10,
+          "пять настоящих погодных значений корректно принимаются по BLE");
+    w.command("fc 6 12 7 2 15 8 1 18 6 2 21 5 1 0 4 1 3 4 2", response, sizeof response);
+    check(strcmp(response, "FC|6") == 0 && w.forecastCount == 6 &&
+          w.forecast[0].hour == 12 && w.forecast[5].hour == 3 &&
+          w.forecast[4].temp == 4, "шесть трёхчасовых погодных точек приняты");
+    w.wakeToInfo();
+    w.render(cv);
+    check(w.infoScreen, "отдельный прогноз не влияет на переключение экранов");
+    w.command("fc 1 25 99 2", response, sizeof response);
+    check(strcmp(response, "FC|0") == 0 && w.forecastCount == 6,
+          "ошибочный прогноз отклонён целиком без потери предыдущего");
+    w.command("wx -1 -1 -99 -1 -1", response, sizeof response);
+    check(strcmp(response, "WX|1") == 0 && w.humidityPct == 255 &&
+          w.feelsC == -99 && w.pressureMm == 0,
+          "отсутствующие значения не превращаются в выдуманные данные");
+    w.command("погода 3 -2", response, sizeof response);
+    check(w.forecastCount == 0 && !w.hasWeatherExtra(),
+          "новая базовая погода удаляет устаревший расширенный прогноз");
+    Save copy = w.s; copy.crc = Game::crc32(&copy, offsetof(Save, crc));
+    Game restored; memset(&restored.s, 0, sizeof restored.s);
+    check(restored.load(copy) && restored.forecastCount == 0 &&
+          !restored.hasWeatherExtra(), "формат Save v4 не изменился");
+  }
   // Совместимый пакет D|3: поле 54 сообщает, открыт ли экран часов.
   {
     Game board; memset(&board.s, 0, sizeof board.s); board.init(4100); board.demo(0);
