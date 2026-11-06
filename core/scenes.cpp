@@ -961,7 +961,11 @@ void Game::drawInfoScreen(Canvas& c) {
   // Верхняя строка — узнаваемая шапка исходного проекта.
   weatherTiny(c, 6, 2, hasWeather() ? weather : 2);
   c.text(font_ui, 25, 1, "ЧАСЫ И ПОГОДА", pal::cyan);
-  c.circle(199, 10, 2.5f, !s.clockSource ? pal::dim : (clockSure ? pal::green : pal::yellow));
+  c.text(font_small, 151, 4, "синхр.", hex(0x8da9c7));
+  c.circle(188, 10, 2.3f, !s.clockSource ? pal::dim : (clockSure ? pal::green : pal::yellow));
+  char charge[8];
+  sfmt(charge, sizeof charge, "%d%%", batPct);
+  c.text(font_small, 215, 4, charge, pal::white, 255, RIGHT);
   drawBattery(c, W - 19, 9, batPct, batCharging);
   c.hline(5, 19, 230, line);
 
@@ -988,8 +992,9 @@ void Game::drawInfoScreen(Canvas& c) {
     day -= n;
   }
   char b[32];
-  sfmt(b, sizeof b, "%02d.%02d %s", (int)day + 1, month + 1, wd[weekday]);
+  sfmt(b, sizeof b, "%02d.%02d.%04d", (int)day + 1, month + 1, year);
   c.text(font_small, 12, 28, b, muted);
+  c.text(font_small, 106, 28, wd[weekday], pal::cyan, 255, RIGHT);
   sfmt(b, sizeof b, "%02d:%02d", hourNow(), minNow());
   c.roundRect(10, 43, 97, 30, 5, panel2);
   c.textFit(58, 46, b, !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow), 94);
