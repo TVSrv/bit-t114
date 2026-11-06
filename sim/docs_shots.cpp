@@ -66,7 +66,7 @@ int main(int argc, char** argv) {
 
   prepare(g, JUNIOR, 12);
   shot(g, dir, "01-home-fullscreen");
-  g.button(B_SHORT);
+  g.button(B_LONG);
   g.tick(120);
   shot(g, dir, "02-menu-sliding");
   g.tick(125);
