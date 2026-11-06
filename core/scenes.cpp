@@ -945,8 +945,8 @@ void Game::drawInfoScreen(Canvas& c) {
   sfmt(b, sizeof b, "%02d:%02d", hourNow(), minNow());
   Color clockColor = !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow);
   c.textFit(71, 60, b, clockColor, 109, CENTER);
-  c.text(font_small, 17, 108, !s.clockSource ? "Время не установлено" :
-         (clockSure ? "Время синхронизировано" : "Проверьте время"), clockSure ? pal::green : pal::yellow);
+  c.text(font_small, 17, 108, !s.clockSource ? "Установите часы" :
+         (clockSure ? "Время проверено" : "Часы не сверены"), clockSure ? pal::green : pal::yellow);
 
   c.vline(138, 36, 77, hex(0x394863));
   c.text(font_small, 153, 36, "ЗА ОКНОМ", pal::dim);
