@@ -923,7 +923,7 @@ void Game::drawInfoScreen(Canvas& c) {
 
   // Дата выводится из локального epoch, уже скорректированного прошивкой.
   uint32_t day = s.epoch / 86400u;
-  int year = 1970;
+  int year = 2000;
   while (year < 2100) {
     int length = 365 + ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0 ? 1 : 0);
     if (day < (uint32_t)length) break;
