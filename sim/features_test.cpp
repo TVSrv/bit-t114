@@ -216,7 +216,7 @@ int main() {
     b.command("data", out, sizeof out);
     printf("     > data → %s\n", out);
     int fields = 0; for (char* p = out; *p; p++) if (*p == '|') fields++;
-    check(strncmp(out, "D|3|", 4) == 0 && fields == 56, "«data» — 55 полей питомца и информера (старые индексы сохранены)");
+    check(strncmp(out, "D|3|", 4) == 0 && fields == 80, "«data» — 79 полей включая расширенный прогноз (старые индексы сохранены)");
     b.command("абракадабра", out, sizeof out);
     check(strstr(out, "Не знаю") != nullptr, "неизвестная команда — подсказка");
   }
@@ -847,14 +847,14 @@ int main() {
       return fields;
     };
     auto idle = sync();
-    check(idle.size() == 55 && idle[50] == 0 && idle[54] == 0,
+    check(idle.size() == 79 && idle[50] == 0 && idle[54] == 0,
           "старые 54 поля неизменны, информер передан 55-м");
     phone.mirror(idle.data(), (int)idle.size());
     check(!phone.menuOpen && !phone.infoScreen, "телефон повторяет экран питомца");
 
     board.button(B_SHORT);
     auto info = sync();
-    check(info.size() == 55 && info[54] == 1 && info[50] == 0,
+    check(info.size() == 79 && info[54] == 1 && info[50] == 0,
           "в BLE передаётся переключение на часы и погоду");
     phone.mirror(info.data(), (int)info.size());
     check(phone.infoScreen && !phone.menuOpen, "зеркало телефона показывает информер");
@@ -865,7 +865,7 @@ int main() {
 
     board.button(B_LONG); board.tick(90);
     auto opened = sync();
-    check(opened.size() == 55 && opened[50] == 1 && opened[51] == 0 &&
+    check(opened.size() == 79 && opened[50] == 1 && opened[51] == 0 &&
           opened[52] == 90 && opened[53] == 90 && opened[54] == 0,
           "открытое меню передаёт положение и выбранный значок");
     phone.mirror(opened.data(), (int)opened.size());
@@ -890,6 +890,21 @@ int main() {
     phone.mirror(legacy.data(), 50);
     check(!phone.menuOpen && !phone.infoScreen && phone.cursor == -1,
           "старый Bluetooth-пакет из 50 полей поддерживается");
+    // Реальные расширения 0.43 синхронизируются с Android-рендерером.
+    char weatherReply[100];
+    board.command("погода 2 7", weatherReply, sizeof weatherReply);
+    board.command("wx 76 3 5 754 10", weatherReply, sizeof weatherReply);
+    board.command("fc 2 12 7 2 15 8 1", weatherReply, sizeof weatherReply);
+    auto extended = sync();
+    phone.mirror(extended.data(), (int)extended.size());
+    check(extended.size() == 79 && extended[55] == 76 && extended[60] == 2 &&
+          phone.humidityPct == 76 && phone.pressureMm == 754 &&
+          phone.forecastCount == 2 && phone.forecast[1].hour == 15,
+          "Android получает показатели и двухточечный прогноз из телеметрии 0.43");
+    phone.mirror(extended.data(), 55);
+    check(phone.forecastCount == 0 && !phone.hasWeatherExtra(),
+          "старый пакет из 55 полей сбрасывает расширенную погоду в зеркале");
+    phone.mirror(extended.data(), (int)extended.size());
     phone.mirror(legacy.data(), 54);
     check(phone.menuOpen && !phone.infoScreen,
           "пакет 0.41 из 54 полей не показывает фиктивный информер");
