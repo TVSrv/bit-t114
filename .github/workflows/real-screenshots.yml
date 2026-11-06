@@ -58,5 +58,5 @@ jobs:
             echo "Pixel screenshots unchanged"
           else
             git commit -m "docs(ui): add authentic screenshots of wake dashboard and pet"
-            git push origin HEAD:experiment/pet-clock-weather-screen
+            git push origin HEAD:"${GITHUB_REF_NAME}"
           fi
