@@ -1,0 +1,52 @@
+<title>Бит для Heltec T114</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700&family=Golos+Text:wght@400;600&display=swap">
+<style>
+/* Галерея экранов: крупные кадры 240×135, увеличенные без размытия, по два в ряд */
+:root {
+  --bg: #11141b; --surface: #191d26; --line: #2c3240; --ink: #e9ecf3; --muted: #9aa3b5; --accent: #5fd4e6;
+  --f-display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --f-body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) { --bg: #eef1f6; --surface: #ffffff; --line: #d3d9e4; --ink: #161a22; --muted: #566074; --accent: #0f8fa3; color-scheme: light; }
+}
+:root[data-theme="light"] { --bg: #eef1f6; --surface: #ffffff; --line: #d3d9e4; --ink: #161a22; --muted: #566074; --accent: #0f8fa3; color-scheme: light; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 17px; line-height: 1.5; }
+.wrap { max-width: 1200px; margin: 0 auto; padding-inline: 20px; padding-block: 32px 64px; display: grid; gap: 32px; }
+h1 { font-family: var(--f-display); font-size: clamp(28px, 5vw, 46px); margin: 0; text-wrap: balance; }
+h1 span { color: var(--accent); }
+.lead { color: var(--muted); max-width: 64ch; margin: 0; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 24px; }
+figure { margin: 0; display: grid; gap: 10px; min-width: 0; }
+figure img { width: 100%; height: auto; aspect-ratio: 240 / 135; image-rendering: pixelated; border-radius: 10px; display: block;
+  box-shadow: 0 0 0 8px #07090c, 0 0 0 9px var(--line); margin: 9px; width: calc(100% - 18px); }
+figcaption { display: grid; gap: 2px; padding-inline: 4px; }
+figcaption b { font-size: 18px; }
+figcaption span { color: var(--muted); font-size: 15.5px; }
+.flash { background: var(--surface); border-radius: 14px; padding: 18px 20px; display: grid; gap: 8px; }
+.flash b { font-size: 18px; }
+.flash ol { margin: 0; padding-left: 22px; color: var(--muted); display: grid; gap: 4px; }
+code { background: var(--line); padding: 1px 6px; border-radius: 4px; color: var(--ink); }
+@media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } .wrap { padding-inline: 16px; } }
+</style>
+<div class="wrap">
+  <header style="display:grid;gap:12px">
+    <h1>Бит — тамагочи для <span>Heltec T114</span></h1>
+    <p class="lead">Кадры с экрана прошивки 0.25 в настоящем размере 240×135, увеличенные без размытия. Кнопка USER: коротко — дальше, долго — выбрать, 2 секунды — домой.</p>
+  </header>
+  <div class="grid">
+__CARDS__
+  </div>
+  <div class="flash">
+    <b>Прошивка</b>
+    <ol>
+      <li>Подключи плату по USB-C и дважды быстро нажми RESET.</li>
+      <li>Появится диск <code>HT-n5262</code>. Скопируй на него <code>bit-t114-0.25.uf2</code>.</li>
+      <li>Плата перезагрузится сама.</li>
+    </ol>
+  </div>
+</div>

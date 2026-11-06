@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Бит для Heltec T114</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Концепция: страница-«даташит» живого устройства. Слева текст, справа плата с настоящим кодом в WebAssembly;
+   дальше — сцены, родословная форм, правила ухода и прошивка. Тёмная тема — основная, как редактор кода. */
+:root {
+  --bg: #0b1322;
+  --surface: #101d30;
+  --surface-2: #18283f;
+  --line: #304560;
+  --ink: #eff6ff;
+  --muted: #a8b9d0;
+  --accent: #78e5d2;
+  --accent-ink: #0b2a30;
+  --warm: #f5d482;
+  --bad: #ff7887;
+  --good: #a5db86;
+  --pcb: #14211d;
+  --pcb-edge: #0b1411;
+  --pad: #c9a34e;
+  --f-display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --f-body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #eef1f6; --surface: #ffffff; --surface-2: #e4e8f0; --line: #d3d9e4;
+    --ink: #161a22; --muted: #5a6477; --accent: #0f8fa3; --accent-ink: #ffffff;
+    --warm: #9a6b12; --bad: #c0394a; --good: #3f7d22;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #eef1f6; --surface: #ffffff; --surface-2: #e4e8f0; --line: #d3d9e4;
+  --ink: #161a22; --muted: #5a6477; --accent: #0f8fa3; --accent-ink: #ffffff;
+  --warm: #9a6b12; --bad: #c0394a; --good: #3f7d22;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 16px; line-height: 1.55; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; gap: 72px; }
+h1, h2, h3 { font-family: var(--f-display); font-weight: 700; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: clamp(22px, 3vw, 30px); }
+h3 { font-size: 15px; font-weight: 500; }
+p { margin: 0; }
+.mono { font-family: var(--f-mono); }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lead { color: var(--muted); max-width: 62ch; }
+code, .kbd { font-family: var(--f-mono); font-size: 0.9em; background: var(--surface-2); padding: 1px 6px; border-radius: 4px; }
+
+/* шапка */
+.top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.brand { font-family: var(--f-display); font-weight: 700; font-size: 18px; display: flex; align-items: center; gap: 10px; }
+.brand i { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); display: inline-block; }
+.top .eyebrow { text-transform: none; letter-spacing: 0.02em; }
+
+/* герой */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 48px; align-items: center; }
+.hero h1 { font-size: clamp(36px, 6vw, 64px); line-height: 1.02; }
+.hero h1 span { color: var(--accent); }
+.hero-text { display: grid; gap: 20px; min-width: 0; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px; }
+.facts span { font-family: var(--f-mono); font-size: 12.5px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; color: var(--muted); }
+.howto { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14.5px; }
+.howto dt { font-family: var(--f-mono); color: var(--accent); }
+.howto dd { margin: 0; color: var(--muted); }
+
+/* плата */
+.bench { display: grid; gap: 14px; min-width: 0; }
+.quick-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.quick-controls button { min-height: 44px; padding-inline: 6px; background: var(--surface); }
+.quick-controls button[data-button="1"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.board:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.board {
+  position: relative; border-radius: 22px; padding: 26px 26px 22px;
+  background:
+    radial-gradient(circle at 12px 12px, var(--pad) 0 5px, var(--pcb-edge) 5.5px 7px, transparent 7.5px) 0 0 / 100% 100% no-repeat,
+    repeating-linear-gradient(90deg, transparent 0 46px, rgba(201,163,78,0.06) 46px 47px),
+    linear-gradient(160deg, #1b2c27, var(--pcb));
+  box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 0 0 1px var(--pcb-edge), 0 24px 60px -20px rgba(0,0,0,0.6);
+  display: grid; gap: 16px;
+}
+.silk { display: flex; justify-content: space-between; align-items: center; font-family: var(--f-mono); font-size: 11px; color: #9fb5ab; letter-spacing: 0.06em; }
+.leds { display: flex; gap: 10px; align-items: center; }
+.led { width: 10px; height: 10px; border-radius: 3px; background: #2a3632; border: 1px solid #0c1411; transition: background 0.12s, box-shadow 0.12s; }
+.bezel { background: #07090c; border-radius: 10px; padding: 10px; box-shadow: 0 0 0 1px #000, 0 2px 0 rgba(255,255,255,0.05); }
+.bezel canvas { display: block; width: 100%; height: auto; aspect-ratio: 240 / 135; image-rendering: pixelated; border-radius: 2px; background: #1e222a; }
+.controls-hw { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.btn-user {
+  appearance: none; border: 0; cursor: pointer; width: 64px; height: 64px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #3b4250, #1c2029 70%); box-shadow: 0 0 0 4px #0b1411, 0 0 0 5px #2c3a35, 0 6px 0 #05080a;
+  color: #9fb5ab; font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.08em; transition: transform 0.06s, box-shadow 0.06s;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.btn-user.down { transform: translateY(4px); box-shadow: 0 0 0 4px #0b1411, 0 0 0 5px #2c3a35, 0 2px 0 #05080a; }
+.btn-user:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; }
+.hold { flex: 1; display: grid; gap: 6px; min-width: 0; }
+.hold-bar { height: 6px; border-radius: 3px; background: #0b1411; overflow: hidden; position: relative; }
+.hold-bar b { position: absolute; inset: 0 auto 0 0; width: 0; background: #9fb5ab; border-radius: 3px; }
+.hold-bar::before, .hold-bar::after { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: #4c5d57; }
+.hold-bar::before { left: 30%; } .hold-bar::after { left: 99%; }
+.hold-label { font-family: var(--f-mono); font-size: 11px; color: #9fb5ab; display: flex; justify-content: space-between; }
+
+.panel { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: space-between; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { appearance: none; border: 0; background: transparent; color: var(--muted); font-family: var(--f-mono); font-size: 13px; padding: 7px 11px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.seg button:focus-visible, .ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ghost { appearance: none; background: transparent; border: 1px solid var(--line); color: var(--ink); border-radius: 10px; padding: 7px 12px; font-family: var(--f-body); font-size: 14px; cursor: pointer; }
+.ghost:hover { border-color: var(--muted); }
+.check { display: inline-flex; gap: 8px; align-items: center; font-size: 14px; color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; font-size: 13px; }
+.stat { display: grid; gap: 8px; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.stat:nth-child(1) { --meter: #f5ad73; }
+.stat:nth-child(2) { --meter: #ff8fab; }
+.stat:nth-child(3) { --meter: #f5d482; }
+.stat:nth-child(4) { --meter: #83baff; }
+.stat .k span:last-child { color: var(--ink); }
+.stat .k { color: var(--muted); display: flex; flex-wrap: wrap; gap: 0 4px; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.meter { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.meter b { display: block; height: 100%; background: var(--meter); border-radius: 3px; transition: width 0.3s; }
+.statline { padding: 3px 0; font-family: var(--f-mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.statline strong { color: var(--ink); font-weight: 600; }
+
+/* сцены */
+.sec { display: grid; gap: 24px; }
+.sec-head { display: grid; gap: 8px; }
+.scenes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.scene { display: grid; gap: 8px; min-width: 0; }
+.scene canvas { width: 100%; height: auto; aspect-ratio: 240 / 135; image-rendering: pixelated; border-radius: 8px; background: #1e222a; display: block; box-shadow: 0 0 0 1px var(--line); }
+.scene h3 { font-family: var(--f-body); font-weight: 600; font-size: 15px; }
+.scene p { color: var(--muted); font-size: 13.5px; }
+
+/* родословная */
+.tree { overflow-x: auto; padding-bottom: 6px; }
+.tree-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 14px; min-width: 780px; }
+.stage { display: grid; gap: 10px; align-content: start; }
+.stage-h { font-family: var(--f-mono); font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.form { display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: center; background: var(--surface); border-radius: 12px; padding: 8px 10px 8px 8px; }
+.form canvas { width: 56px; height: 56px; border-radius: 8px; image-rendering: auto; }
+.form b { font-size: 14px; display: block; }
+.form small { color: var(--muted); font-size: 12px; line-height: 1.35; display: block; }
+.form.secret { box-shadow: 0 0 0 1px var(--accent) inset; }
+
+/* уход */
+.care { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; }
+.row { display: grid; grid-template-columns: 9.5em 1fr; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+.row dt { font-weight: 600; }
+.row dd { margin: 0; color: var(--muted); }
+.row dd em { font-style: normal; color: var(--ink); font-family: var(--f-mono); font-size: 13px; }
+
+/* прошивка */
+.flash { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; }
+.steps { display: grid; gap: 14px; counter-reset: s; padding: 0; margin: 0; list-style: none; }
+.steps li { display: grid; grid-template-columns: 30px 1fr; gap: 12px; counter-increment: s; }
+.steps li::before { content: counter(s); font-family: var(--f-mono); font-weight: 600; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); font-size: 13px; }
+.note { background: var(--surface); border-radius: 12px; padding: 14px 16px; font-size: 14px; color: var(--muted); }
+.note strong { color: var(--ink); }
+.pins-wrap { overflow-x: auto; }
+table.pins { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+.pins th, .pins td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.pins th { font-family: var(--f-mono); font-size: 11.5px; color: var(--muted); font-weight: 400; letter-spacing: 0.06em; text-transform: uppercase; }
+.pins td:nth-child(2) { font-family: var(--f-mono); white-space: nowrap; }
+.pins td:last-child { color: var(--muted); }
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 20px; }
+
+@media (max-width: 900px) {
+  .hero, .flash { grid-template-columns: minmax(0, 1fr); }
+  .scenes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .care { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 520px) {
+  .wrap { padding-inline: 16px; gap: 56px; }
+  .board { padding: 18px 16px 16px; border-radius: 16px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scenes { gap: 14px; }
+  .row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+@media (prefers-reduced-motion: reduce) { .meter b, .led, .btn-user { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><i></i>Бит</div>
+    <div class="eyebrow">прошивка 0.1 · nRF52840 · ST7789 240×135 · GPS L76K</div>
+  </header>
+
+  <section class="hero">
+    <div class="hero-text">
+      <p class="eyebrow">тамагочи для Heltec Mesh Node T114</p>
+      <h1>Питомец, который живёт <span>в&nbsp;редакторе кода</span></h1>
+      <p class="lead">Бит вылупляется из компиляции, пьёт кофе, ловит баги и растёт от Hello World до Архитектора. Справа работает та же программа, что и на плате: ядро на C++ собрано в WebAssembly. Кнопка ведёт себя так же, как кнопка USER на T114.</p>
+      <dl class="howto">
+        <dt>коротко</dt><dd>следующий значок или пункт</dd>
+        <dt>долго</dt><dd>от 0,6 с: выбрать</dd>
+        <dt>2 секунды</dt><dd>домой из любого экрана</dd>
+        <dt>пробел</dt><dd>то же с клавиатуры, когда плата в фокусе</dd>
+      </dl>
+      <div class="facts"><span>11 форм</span><span>6 мини-игр</span><span>прогулки по GPS</span><span>часы со спутников</span><span>сохранение во флеш</span></div>
+    </div>
+
+    <div class="bench">
+      <div class="board" id="board" role="group" aria-label="Виртуальная плата Heltec T114">
+        <div class="silk"><span>HELTEC · T114</span><span class="leds" aria-label="светодиоды"><span class="led" id="led1"></span><span class="led" id="led2"></span></span></div>
+        <div class="bezel"><canvas id="screen" width="240" height="135" aria-label="Экран устройства"></canvas></div>
+        <div class="controls-hw">
+          <button class="btn-user" id="user" aria-label="Кнопка USER: коротко — дальше, долго — выбрать, 2 секунды — домой">USER</button>
+          <div class="hold" aria-hidden="true">
+            <div class="hold-bar"><b id="holdbar"></b></div>
+            <div class="hold-label"><span>коротко</span><span>долго</span><span>домой</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="quick-controls" role="group" aria-label="Быстрое управление">
+        <button type="button" class="ghost" data-button="0">Дальше</button>
+        <button type="button" class="ghost" data-button="1">Выбрать</button>
+        <button type="button" class="ghost" data-button="2">Домой</button>
+      </div>
+      <div class="panel">
+        <div class="seg" role="group" aria-label="Скорость времени" id="speed">
+          <button type="button" data-k="1" aria-pressed="true">×1</button>
+          <button type="button" data-k="60" aria-pressed="false">×60</button>
+          <button type="button" data-k="600" aria-pressed="false">×600</button>
+          <button type="button" data-k="3600" aria-pressed="false">×3600</button>
+        </div>
+        <label class="check"><input type="checkbox" id="gpssim" checked> имитация GPS</label>
+        <button type="button" class="ghost" id="reset">Новый питомец</button>
+      </div>
+      <div class="stats" id="stats">
+        <div class="stat"><div class="k"><span>Сытость</span><span id="v1">—</span></div><div class="meter"><b id="m1"></b></div></div>
+        <div class="stat"><div class="k"><span>Настроение</span><span id="v2">—</span></div><div class="meter"><b id="m2"></b></div></div>
+        <div class="stat"><div class="k"><span>Энергия</span><span id="v3">—</span></div><div class="meter"><b id="m3"></b></div></div>
+        <div class="stat"><div class="k"><span>Дисциплина</span><span id="v4">—</span></div><div class="meter"><b id="m4"></b></div></div>
+      </div>
+      <div class="statline" id="statline">загрузка…</div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="h-scenes">
+    <div class="sec-head">
+      <p class="eyebrow">рендеры</p>
+      <h2 id="h-scenes">Сцены с экрана</h2>
+      <p class="lead">Каждая картинка — отдельный запущенный экземпляр прошивки в нужном состоянии. Анимации идут вживую, кадр 240×135, как на плате.</p>
+    </div>
+    <div class="scenes" id="scenes"></div>
+  </section>
+
+  <section class="sec" aria-labelledby="h-tree">
+    <div class="sec-head">
+      <p class="eyebrow">эволюция</p>
+      <h2 id="h-tree">От компиляции до Архитектора</h2>
+      <p class="lead">Форма зависит от ухода. Ошибка ухода — это зов питомца, на который не ответили 15 минут. Счётчик ошибок обнуляется при каждом взрослении, поэтому важна каждая стадия.</p>
+    </div>
+    <div class="tree"><div class="tree-grid" id="tree"></div></div>
+  </section>
+
+  <section class="sec" aria-labelledby="h-care">
+    <div class="sec-head">
+      <p class="eyebrow">уход</p>
+      <h2 id="h-care">Что делает каждое действие</h2>
+    </div>
+    <div class="care">
+      <dl>
+        <div class="row"><dt>Кофе</dt><dd><em>+10</em> сытости, <em>+25</em> энергии</dd></div>
+        <div class="row"><dt>Пицца</dt><dd><em>+35</em> сытости, <em>+1 КБ</em> веса; скоро появится баг</dd></div>
+        <div class="row"><dt>Печенька</dt><dd><em>+20</em> настроения, <em>+2 КБ</em>; после трёх за день каждая третья вызывает баг</dd></div>
+        <div class="row"><dt>Игры</dt><dd>«Отладка»: нажать, когда каретка на жуке. «0 или 1»: угадать бит. За каждый успех <em>+6</em> настроения, <em>−1 КБ</em></dd></div>
+        <div class="row"><dt>Свет</dt><dd>Вечером питомец засыпает сам; выключи свет за 15 минут, иначе ошибка ухода. В темноте он высыпается в 2,5 раза быстрее</dd></div>
+      </dl>
+      <dl>
+        <div class="row"><dt>Уборка</dt><dd>Убирает жуков-багов с пола. Три и больше повышают шанс болезни</dd></div>
+        <div class="row"><dt>Отладчик</dt><dd>Лечит «SIGSEGV» за 1–2 прогона. Болезнь без лечения 12 часов — конец</dd></div>
+        <div class="row"><dt>Код-ревью</dt><dd>Воспитание. Ответ на каприз: <em>+25</em> дисциплины. Ревью без повода обижает: <em>−10</em> настроения</dd></div>
+        <div class="row"><dt>Прогулка</dt><dd>GPS считает шаги: каждые 50 м <em>+3</em> настроения и <em>−1 КБ</em>. Дрожание меньше 4 м и скачки больше 120 м отбрасываются</dd></div>
+        <div class="row"><dt>Голод</dt><dd>12 часов при пустой сытости — «Out of memory»</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="h-flash">
+    <div class="sec-head">
+      <p class="eyebrow">прошивка</p>
+      <h2 id="h-flash">Как прошить плату</h2>
+    </div>
+    <div class="flash">
+      <div style="display:grid;gap:18px;min-width:0">
+        <ol class="steps">
+          <li><span>Подключи T114 к компьютеру кабелем USB-C, который передаёт данные.</span></li>
+          <li><span>Дважды быстро нажми <b>RESET</b>. Появится диск <code>HT-n5262</code> с файлом <code>INFO_UF2.TXT</code>.</span></li>
+          <li><span>Перетащи на этот диск файл <code>bit-t114-0.1.uf2</code>. Программы и драйверы не нужны.</span></li>
+          <li><span>Плата перезагрузится сама, и на экране начнётся «Компиляция»: вылупляется Бит.</span></li>
+        </ol>
+        <div class="note"><strong>Вернуть Meshtastic</strong> можно так же: скачай .uf2 для <code>heltec-mesh-node-t114</code> на flasher.meshtastic.org и перетащи его на диск.</div>
+        <div class="note"><strong>Статус.</strong> Прошивка собрана и проверена в эмуляторе. На настоящей плате её ещё не запускали. Ориентация и смещение экрана взяты из Meshtastic. Если картинка окажется перевёрнутой, в настройках есть пункт «Экран: перевёрнут».</div>
+      </div>
+      <div class="pins-wrap">
+        <table class="pins">
+          <thead><tr><th>Узел</th><th>Выводы</th><th>Как используется</th></tr></thead>
+          <tbody>
+            <tr><td>Экран ST7789</td><td>P1.08 · P1.09 · P0.11 · P0.12</td><td>SCK, MOSI, CS, DC; SPIM3 на 32 МГц, кадр целиком из памяти</td></tr>
+            <tr><td>Питание экрана</td><td>P0.03 · P0.15</td><td>LOW включает панель и подсветку; яркость ШИМ в 3 ступени</td></tr>
+            <tr><td>Кнопка USER</td><td>P1.10</td><td>подтяжка, коротко / долго / удержание</td></tr>
+            <tr><td>GPS L76K</td><td>P1.05 · P1.07 · P0.21</td><td>RX, TX, питание; включается для часов и прогулок</td></tr>
+            <tr><td>RGB-светодиоды</td><td>P0.14</td><td>два WS2812: цвет формы, красный пульс при зове</td></tr>
+            <tr><td>Батарея</td><td>P0.04 · P0.06</td><td>АЦП через делитель ×4,916</td></tr>
+            <tr><td>Радио SX1262</td><td>P0.24 и др.</td><td>не нужно, при старте усыпляется ради батареи</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <footer>Бит 0.1 · ядро на C++ без стандартной библиотеки: одно и то же на nRF52840 и в браузере. Шрифты экрана — DejaVu, страницы — Unbounded, Golos Text, JetBrains Mono.</footer>
+</div>
+
+<script>
+(() => {
+  const WASM_B64 = "__WASM__";
+  const bytes = Uint8Array.from(atob(WASM_B64), c => c.charCodeAt(0));
+  const FORMS = ["Компиляция", "Hello World", "Джун", "Мидл", "Фрилансер", "Сеньор", "Архитектор", "Хакер", "Легаси", "Нейросеть", "Призрак"];
+  const EPOCH2000 = 946684800;
+
+  // RGB565 -> RGBA (таблица на все 65536 цветов)
+  const LUT = new Uint32Array(65536);
+  for (let v = 0; v < 65536; v++) {
+    const r = (v >> 11) << 3, g = ((v >> 5) & 63) << 2, b = (v & 31) << 3;
+    LUT[v] = 0xFF000000 | ((b | (b >> 5)) << 16) | ((g | (g >> 6)) << 8) | (r | (r >> 5));
+  }
+  function blit(ex, ptr, ctx, img) {
+    const src = new Uint16Array(ex.memory.buffer, ptr, 240 * 135);
+    const dst = new Uint32Array(img.data.buffer);
+    for (let i = 0; i < src.length; i++) dst[i] = LUT[src[i]];
+    ctx.putImageData(img, 0, 0);
+  }
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+
+  WebAssembly.compile(bytes).then(async mod => {
+    const make = async () => { const i = await WebAssembly.instantiate(mod, {}); i.exports.__wasm_call_ctors(); return i.exports; };
+
+    // --- главное устройство ---
+    const ex = await make();
+    const saved = store.get("bit-save");
+    let loaded = false;
+    if (saved) {
+      try {
+        const raw = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
+        if (raw.length === ex.saveSize()) {
+          new Uint8Array(ex.memory.buffer, ex.loadBuf(), raw.length).set(raw);
+          loaded = !!ex.loadData();
+        }
+      } catch (e) {}
+    }
+    if (!loaded) ex.start((Math.random() * 4294967295) >>> 0);
+    ex.battery(82, 0);
+
+    const cv = document.getElementById("screen"), ctx = cv.getContext("2d"), img = ctx.createImageData(240, 135);
+    const led1 = document.getElementById("led1"), led2 = document.getElementById("led2");
+    const holdbar = document.getElementById("holdbar");
+    const user = document.getElementById("user");
+
+    function persist() {
+      try {
+        const n = ex.saveSize(), p = ex.saveData();
+        const b = new Uint8Array(ex.memory.buffer, p, n);
+        let s = ""; for (let i = 0; i < n; i++) s += String.fromCharCode(b[i]);
+        store.set("bit-save", btoa(s));
+      } catch (e) {}
+    }
+    setInterval(persist, 10000);
+    addEventListener("pagehide", persist);
+
+    // кнопка: те же пороги, что в прошивке
+    let downAt = 0, held = false, isDown = false;
+    const press = () => { if (isDown) return; isDown = true; downAt = performance.now(); held = false; user.classList.add("down"); };
+    const cancel = () => {
+      isDown = false;
+      user.classList.remove("down");
+      holdbar.style.width = "0";
+    };
+    const release = () => {
+      if (!isDown) return;
+      const d = performance.now() - downAt;
+      cancel();
+      if (held || d < 30) return;
+      ex.button(d >= 600 ? 1 : 0);
+    };
+    user.addEventListener("pointerdown", e => { e.preventDefault(); user.setPointerCapture?.(e.pointerId); press(); });
+    user.addEventListener("pointerup", release);
+    user.addEventListener("pointercancel", cancel);
+    user.addEventListener("lostpointercapture", cancel);
+    user.addEventListener("contextmenu", e => e.preventDefault());
+    const board = document.getElementById("board");
+    board.tabIndex = 0;
+    const key = e => (e.code === "Space" || e.code === "Enter");
+    board.addEventListener("keydown", e => { if (key(e)) { e.preventDefault(); if (!e.repeat) press(); } });
+    board.addEventListener("keyup", e => { if (key(e)) { e.preventDefault(); release(); } });
+    board.addEventListener("focusout", e => { if (!board.contains(e.relatedTarget)) cancel(); });
+    addEventListener("blur", cancel);
+    document.querySelectorAll(".quick-controls button").forEach(b => {
+      b.addEventListener("click", () => ex.button(Number(b.dataset.button)));
+    });
+
+    document.querySelectorAll("#speed button").forEach(b => b.addEventListener("click", () => {
+      document.querySelectorAll("#speed button").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+      ex.setSpeed(+b.dataset.k);
+    }));
+    const resetBtn = document.getElementById("reset");
+    let armed = 0;
+    resetBtn.addEventListener("click", () => {
+      if (armed && performance.now() - armed < 3000) { ex.start((Math.random() * 4294967295) >>> 0); persist(); resetBtn.textContent = "Новый питомец"; armed = 0; return; }
+      armed = performance.now(); resetBtn.textContent = "Нажми ещё раз — удалить";
+      setTimeout(() => { if (armed && performance.now() - armed >= 3000) { resetBtn.textContent = "Новый питомец"; armed = 0; } }, 3100);
+    });
+
+    // имитация GPS: идём на северо-восток ~1,4 м/с от Москвы
+    const gpsSim = document.getElementById("gpssim");
+    let lat = 55.7558, lon = 37.6173, lastGps = 0;
+    function gpsStep(now) {
+      if (!gpsSim.checked) return;
+      const want = ex.wantsGps();
+      if (!want || now - lastGps < 1000) return;
+      lastGps = now;
+      lat += 1.0 / 111195; lon += 1.0 / (111195 * Math.cos(lat * Math.PI / 180));
+      ex.gps(1, 8, lat, lon, Math.floor(Date.now() / 1000) - EPOCH2000);
+    }
+
+    const rgb = c => `rgb(${(c >> 16) & 255},${(c >> 8) & 255},${c & 255})`;
+    function leds() {
+      const c = ex.led();
+      if (!c) { led1.style.background = led2.style.background = ""; led1.style.boxShadow = led2.style.boxShadow = ""; return; }
+      // светодиоды в прошивке тусклые — на экране подсвечиваем, чтобы было видно цвет
+      let r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+      const m = Math.max(r, g, b) || 1, k = 255 / m;
+      r = Math.round(r * k); g = Math.round(g * k); b = Math.round(b * k);
+      const col = rgb((r << 16) | (g << 8) | b);
+      led1.style.background = led2.style.background = col;
+      led1.style.boxShadow = led2.style.boxShadow = `0 0 10px 2px ${col}`;
+    }
+
+    const v = i => document.getElementById("v" + i), m = i => document.getElementById("m" + i);
+    const line = document.getElementById("statline");
+    function stats() {
+      const vals = [ex.stat(1), ex.stat(2), ex.stat(3), ex.stat(4)];
+      vals.forEach((x, i) => { v(i + 1).textContent = x + "%"; m(i + 1).style.width = x + "%"; });
+      const age = ex.stat(6), d = Math.floor(age / 1440), h = Math.floor(age / 60) % 24;
+      const sec = ex.stat(11), hh = String(Math.floor(sec / 3600)).padStart(2, "0"), mm = String(Math.floor(sec / 60) % 60).padStart(2, "0");
+      const bits = [`<strong>${FORMS[ex.stat(0)] || "?"}</strong>`, `возраст ${d} дн ${h} ч`, `вес ${ex.stat(5)} КБ`, `багов ${ex.stat(7)}`, `ошибок ухода ${ex.stat(9)}`, `часы ${hh}:${mm}`];
+      if (ex.stat(8)) bits.push(`<strong style="color:var(--bad)">болеет</strong>`);
+      if (ex.stat(12)) bits.push("спит");
+      if (!ex.stat(10)) bits.push(`<strong style="color:var(--bad)">завершён</strong>`);
+      line.innerHTML = bits.join(" · ");
+    }
+
+    let last = performance.now(), acc = 0, slow = 0;
+    function loop(now) {
+      const dt = Math.min(250, now - last); last = now;
+      ex.tick(Math.round(dt));
+      if (isDown) {
+        const d = now - downAt;
+        holdbar.style.width = Math.min(100, d / 20) + "%";
+        if (!held && d >= 2000) { held = true; ex.button(2); }
+      }
+      gpsStep(now);
+      acc += dt;
+      if (acc >= 33) { acc = 0; blit(ex, ex.frame(), ctx, img); leds(); }
+      slow += dt;
+      if (slow >= 250) { slow = 0; stats(); }
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    // --- сцены: отдельные экземпляры ---
+    const SCENES = [
+      [1, "Голод", "Сытость почти на нуле: питомец зовёт, шкала сытости подсвечена красным, светодиоды пульсируют красным."],
+      [2, "SIGSEGV", "Болезнь от грязи и переедания. Глитч по строкам экрана, кружатся глаза, лечится отладчиком."],
+      [3, "Сон", "Свет выключен: звёзды, луна и «Z» над головой. Код в фоне почти гаснет."],
+      [4, "Грусть", "Хакер без внимания: над ним дождевая туча, глаза светятся зелёным из капюшона."],
+      [5, "Эволюция", "Вспышка, кольца и пружинное появление новой формы с баннером версии."],
+      [7, "Нейросеть", "Секретная форма: парит над полом, вокруг вращаются три орбиты."],
+      [8, "Прогулка", "GPS считает метры, параллакс холмов и деревья-скобки. Ночью — звёзды."],
+      [6, "Синий экран", "Если не уследить: «Код остановки SEGMENTATION_FAULT», потом надгробие и призрак."]
+    ];
+    const grid = document.getElementById("scenes");
+    const minis = [];
+    for (const [n, title, text] of SCENES) {
+      const fig = document.createElement("figure");
+      fig.className = "scene"; fig.style.margin = "0";
+      fig.innerHTML = `<canvas width="240" height="135" aria-label="${title}"></canvas><h3>${title}</h3><p>${text}</p>`;
+      grid.appendChild(fig);
+      const e = await make();
+      e.start(1000 + n); e.battery(64, 0);
+      for (let i = 0; i < 70; i++) e.tick(1000);  // проскочить вылупление
+      e.demo(n);
+      const c = fig.querySelector("canvas"), x = c.getContext("2d");
+      const mi = { e, n, x, img: x.createImageData(240, 135), t0: performance.now(), vis: true, c };
+      minis.push(mi);
+      blit(e, e.frame(), x, mi.img);
+    }
+    const io = "IntersectionObserver" in window ? new IntersectionObserver(es => es.forEach(en => {
+      const mi = minis.find(q => q.c === en.target); if (mi) mi.vis = en.isIntersecting;
+    })) : null;
+    minis.forEach(mi => io && io.observe(mi.c));
+    let mlast = performance.now(), macc = 0;
+    function mloop(now) {
+      const dt = Math.min(250, now - mlast); mlast = now; macc += dt;
+      if (macc >= 66) {
+        for (const mi of minis) {
+          if (!mi.vis) continue;
+          mi.e.tick(Math.round(macc));
+          if (mi.n === 8 && now % 1000 < 80) mi.e.gps(1, 7, 55.75 + now / 1e9, 37.61, 0);
+          // эволюцию и синий экран повторяем по кругу
+          const loopMs = mi.n === 5 ? 6500 : (mi.n === 6 ? 11000 : 0);
+          if (loopMs && now - mi.t0 > loopMs) { mi.e.demo(mi.n); mi.t0 = now; }
+          blit(mi.e, mi.e.frame(), mi.x, mi.img);
+        }
+        macc = 0;
+      }
+      requestAnimationFrame(mloop);
+    }
+    requestAnimationFrame(mloop);
+
+    // --- родословная ---
+    const TREE = [
+      ["стадия 0 · 60 с", [[0, "Компиляция", "Яйцо со скобками собирается минуту"]]],
+      ["стадия 1 · 1 ч", [[1, "Hello World", "Малыш с антенной-битом"]]],
+      ["стадия 2 · 24 ч", [[2, "Джун", "Кепка с пропеллером"]]],
+      ["стадия 3 · 48 ч", [[3, "Мидл", "Если у Джуна ≤ 3 ошибок"], [4, "Фрилансер", "Если ошибок больше"]]],
+      ["стадия 4 · взрослый", [
+        [6, "Архитектор", "Мидл, ≤ 2 ошибок, дисциплина ≥ 75 · 18 дней"],
+        [7, "Хакер", "≤ 2 ошибок · 16 дней"],
+        [5, "Сеньор", "3–6 ошибок · 14 дней"],
+        [8, "Легаси", "больше 6 ошибок · 9 дней"],
+        [9, "Нейросеть", "Секрет: Хакер или Архитектор, 4 дня, ≤ 1 ошибки, дисциплина 100 · 25 дней", true]
+      ]]
+    ];
+    const tree = document.getElementById("tree");
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim();
+    const hex = s => { const t = s.replace("#", ""); return parseInt(t.length === 3 ? t.split("").map(c => c + c).join("") : t, 16) || 0x191d26; };
+    const pe = await make();
+    const ports = [];
+    for (const [head, forms] of TREE) {
+      const col = document.createElement("div");
+      col.className = "stage";
+      col.innerHTML = `<div class="stage-h">${head}</div>`;
+      for (const [f, name, cond, secret] of forms) {
+        const el = document.createElement("div");
+        el.className = "form" + (secret ? " secret" : "");
+        el.innerHTML = `<canvas width="80" height="80" aria-hidden="true"></canvas><div><b>${name}</b><small>${cond}</small></div>`;
+        col.appendChild(el);
+        ports.push({ f, x: el.querySelector("canvas").getContext("2d") });
+      }
+      tree.appendChild(col);
+    }
+    const full = document.createElement("canvas"); full.width = 240; full.height = 135;
+    const fx = full.getContext("2d"), fimg = fx.createImageData(240, 135);
+    let pacc = 0, plast = performance.now();
+    function ploop(now) {
+      pacc += now - plast; plast = now;
+      if (pacc >= 100) {
+        pacc = 0;
+        const col = hex(getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || bg);
+        for (const p of ports) {
+          blit(pe, pe.portrait(p.f, Math.floor(now) + p.f * 700, col), fx, fimg);
+          p.x.drawImage(full, 80, 34, 80, 80, 0, 0, 80, 80);
+        }
+      }
+      requestAnimationFrame(ploop);
+    }
+    requestAnimationFrame(ploop);
+  }).catch(err => {
+    document.getElementById("statline").textContent = "Эмулятор не запустился: " + err.message + ". Обнови страницу.";
+  });
+})();
+</script>
+</body>
+</html>

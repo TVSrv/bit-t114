@@ -1,0 +1,44 @@
+name: Generate authentic 0.41 screenshots
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout 0.41 rendering engine
+        uses: actions/checkout@v4
+      - name: Build native renderer
+        run: |
+          g++ -O2 -std=c++17 -o /tmp/bit-real-shots sim/docs_shots.cpp core/*.cpp
+          mkdir -p /tmp/bit-ppm docs/screenshots
+          /tmp/bit-real-shots /tmp/bit-ppm
+      - name: Convert exact game frames to lossless PNG
+        run: |
+          python3 -m pip install Pillow
+          python3 - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          source = Path("/tmp/bit-ppm")
+          target = Path("docs/screenshots")
+          names = []
+          for ppm in sorted(source.glob("*.ppm")):
+              image = Image.open(ppm).convert("RGB")
+              assert image.size == (240, 135), (ppm.name, image.size)
+              image.resize((720, 405), Image.Resampling.NEAREST).save(
+                  target / (ppm.stem + ".png"), format="PNG", optimize=True
+              )
+              names.append(ppm.stem)
+          assert len(names) == 8, names
+          print("Accurate images rendered from source:", names)
+          PY
+      - name: Upload visual proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bit-0.41-authentic-screenshots
+          path: docs/screenshots/*.png
+          if-no-files-found: error

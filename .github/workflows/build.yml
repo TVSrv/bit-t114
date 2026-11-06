@@ -1,0 +1,65 @@
+name: Build Tamagotchi
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  firmware:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check GPS parser tests
+        run: |
+          g++ -O2 -std=c++17 -o /tmp/bit-gps-test sim/gps_test.cpp core/gps.cpp
+          /tmp/bit-gps-test
+      - name: Check game and clock regression tests
+        run: |
+          g++ -O2 -std=c++17 -o /tmp/bit-features-test sim/features_test.cpp core/*.cpp
+          /tmp/bit-features-test
+      - name: Install PlatformIO
+        run: python -m pip install platformio
+      - name: Build firmware
+        run: pio run -e t114
+      - name: Create Bluetooth OTA DFU package
+        run: |
+          python -m pip install adafruit-nrfutil
+          adafruit-nrfutil dfu genpkg --application .pio/build/t114/firmware.hex --application-version 0xFFFFFFFF --dev-type 0x0052 --dev-revision 0xFFFF --sd-req 0xB6 firmware-ota.zip
+          test -s firmware-ota.zip
+          python -c 'import json,zipfile; z=zipfile.ZipFile("firmware-ota.zip"); d=json.loads(z.read("manifest.json")); a=d["manifest"]["application"]["init_packet_data"]; assert d["manifest"]["dfu_version"] == 0.5 and a["device_type"] == 82 and a["application_version"] == 4294967295 and a["softdevice_req"] == [182]'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Heltec-T114-firmware
+          path: |
+            .pio/build/t114/firmware.uf2
+            firmware-ota.zip
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Locate Android SDK
+        run: echo "ANDROID_HOME=${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+      - name: Install Android SDK
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Build APK
+        working-directory: android
+        run: bash ./gradlew --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bit-Tamagotchi-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

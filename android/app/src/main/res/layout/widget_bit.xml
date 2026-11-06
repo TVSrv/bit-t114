@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@drawable/widget_screen_bg"
+        android:padding="5dp">
+
+        <ImageView
+            android:id="@+id/widget_screen"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="Экран платы"
+            android:scaleType="fitCenter" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/widget_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="Бит · нет связи"
+        android:textColor="#FFE8EBF2"
+        android:textSize="13sp" />
+</LinearLayout>

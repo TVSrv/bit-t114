@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Значок: круглый питомец-бит с антенной на фоне редактора -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFE5C07B" android:pathData="M54,30m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
+    <path android:strokeColor="#FF2F6F78" android:strokeWidth="2.5" android:pathData="M54,35 L54,42" />
+    <path android:fillColor="#FF2F6F78" android:pathData="M54,64m-23,0a23,21 0,1 1,46 0a23,21 0,1 1,-46 0" />
+    <path android:fillColor="#FF5FD4E6" android:pathData="M54,63m-21,0a21,19 0,1 1,42 0a21,19 0,1 1,-42 0" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M46,60m-4.5,0a4.5,5.5 0,1 1,9 0a4.5,5.5 0,1 1,-9 0" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M62,60m-4.5,0a4.5,5.5 0,1 1,9 0a4.5,5.5 0,1 1,-9 0" />
+    <path android:fillColor="#FF16181D" android:pathData="M47,61m-2.6,0a2.6,3 0,1 1,5.2 0a2.6,3 0,1 1,-5.2 0" />
+    <path android:fillColor="#FF16181D" android:pathData="M63,61m-2.6,0a2.6,3 0,1 1,5.2 0a2.6,3 0,1 1,-5.2 0" />
+    <path android:strokeColor="#FF16181D" android:strokeWidth="2" android:strokeLineCap="round" android:pathData="M50,70 Q54,73.5 58,70" />
+    <path android:fillColor="#66FF8FAB" android:pathData="M40,68m-3.5,0a3.5,2 0,1 1,7 0a3.5,2 0,1 1,-7 0" />
+    <path android:fillColor="#66FF8FAB" android:pathData="M68,68m-3.5,0a3.5,2 0,1 1,7 0a3.5,2 0,1 1,-7 0" />
+</vector>
