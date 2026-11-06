@@ -679,7 +679,7 @@ int main() {
     m.idleMs = 31000;
     m.wakeToInfo();
     check(m.infoScreen && m.idleMs == 0 && !m.menuOpen &&
-          m.scene == S_HOME && m.s.alive && m.s.hunger == 60,
+          m.scene == S_HOME && m.s.alive && m.s.hunger == 80,
           "первое нажатие при погашенном дисплее показывает часы, не меняя питомца");
     m.render(cv);
     m.button(B_SHORT);
