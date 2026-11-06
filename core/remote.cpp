@@ -51,7 +51,7 @@ int Game::command(const char* line, char* out, int n) {
 
   // для приложения: всё состояние одной строкой, поля через «|» (порядок — в android/.../PetState.kt)
   if ((a = word(l, "data"))) {
-    return sfmt(out, n,
+    int len = sfmt(out, n,
                 "D|3|%d|%d|%u|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%d|%d|%d|%d|%d|%u|%d|%d|%u|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%d"
                 "|%d|%d|%d|%d|%d|%u|%d|%d|%u|%u|%d|%d|%d|%d"
                 "|%d|%d|%u|%u|%d",
@@ -69,6 +69,21 @@ int Game::command(const char* line, char* out, int n) {
                     now - menuTransitionAt : MENU_ANIM_MS),
                 (unsigned)((now - cursorMs) < MENU_IDLE_MS ? now - cursorMs : MENU_IDLE_MS),
                  infoScreen && scene == S_HOME ? 1 : 0);
+    // Состояние 0.43 добавлено только после прежних 55 полей.
+    // Телефон с новой Android-сборкой отображает тот же прогноз, что и плата.
+    bool extra = hasWeatherExtra();
+    len += sfmt(out + len, n - len, "|%d|%d|%d|%d|%d|%d",
+                extra ? (int)humidityPct : 255, extra ? (int)windMs : 255,
+                extra ? (int)feelsC : -99, extra ? (int)pressureMm : 0,
+                extra ? (int)precipitationPct : 255, extra ? (int)forecastCount : 0);
+    for (int i = 0; i < 6 && len < n - 30; ++i) {
+      const ForecastHour& f = forecast[i];
+      len += sfmt(out + len, n - len, "|%d|%d|%d",
+                  extra && i < forecastCount ? (int)f.hour : 0,
+                  extra && i < forecastCount ? (int)f.temp : 0,
+                  extra && i < forecastCount ? (int)f.kind : 0);
+    }
+    return len;
   }
 
   if ((a = word(l, "статус")) || (a = word(l, "status"))) {
@@ -287,6 +302,24 @@ void Game::mirror(const int32_t* v, int n) {
   s.mistakes = (uint8_t)v[30]; s.careScore = (uint16_t)v[32]; s.seed = (uint32_t)v[33];
   s.gamesWon = (uint16_t)v[34]; s.gamesPlayed = (uint16_t)v[35];
   if (n >= 50) { weather = (uint8_t)v[48]; tempC = (int8_t)v[49]; weatherUntil = weather ? now + 3600000u : 0; }
+  if (n >= 79 && v[60] >= 0 && v[60] <= 6) {
+    humidityPct = (uint8_t)clampi(v[55], 0, 255);
+    windMs = (uint8_t)clampi(v[56], 0, 255);
+    feelsC = (int8_t)clampi(v[57], -99, 70);
+    pressureMm = (uint16_t)clampi(v[58], 0, 900);
+    precipitationPct = (uint8_t)clampi(v[59], 0, 255);
+    forecastCount = (uint8_t)v[60];
+    for (int i = 0; i < 6; ++i) {
+      forecast[i].hour = (uint8_t)clampi(v[61 + i * 3], 0, 23);
+      forecast[i].temp = (int8_t)clampi(v[62 + i * 3], -60, 70);
+      forecast[i].kind = (uint8_t)clampi(v[63 + i * 3], 0, 6);
+    }
+    weatherExtraUntil = now + 3600000u;
+  } else {
+    // Совместимость со старыми пакетами 0.41/0.42.
+    forecastCount = 0;
+    weatherExtraUntil = 0;
+  }
   if (n >= 48) { s.stepsToday = (uint32_t)v[44]; s.coins = (uint32_t)v[45]; s.hat = (uint8_t)v[46]; s.theme = (uint8_t)v[47]; }
   if (n >= 44) {
     // движение: своя случайная прогулка выключена — идём туда же, куда питомец на плате
