@@ -961,8 +961,9 @@ void Game::drawInfoScreen(Canvas& c) {
   // Верхняя строка — узнаваемая шапка исходного проекта.
   weatherTiny(c, 6, 2, hasWeather() ? weather : 2);
   c.text(font_ui, 25, 1, "ЧАСЫ И ПОГОДА", pal::cyan);
-  c.text(font_small, 151, 4, "синхр.", hex(0x8da9c7));
-  c.circle(188, 10, 2.3f, !s.clockSource ? pal::dim : (clockSure ? pal::green : pal::yellow));
+  // Цветная точка показывает синхронизацию без подписи,
+  // иначе верхняя строка не помещается на настоящих 240 пикселях.
+  c.circle(174, 10, 2.3f, !s.clockSource ? pal::dim : (clockSure ? pal::green : pal::yellow));
   char charge[8];
   sfmt(charge, sizeof charge, "%d%%", batPct);
   c.text(font_small, 215, 4, charge, pal::white, 255, RIGHT);
