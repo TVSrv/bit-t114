@@ -705,6 +705,14 @@ void Game::closeMenu() {
   cursor = -1;
 }
 
+void Game::wakeToInfo() {
+  idleMs = 0;
+  if (scene == S_HOME) {
+    infoScreen = true;
+    closeMenu();
+  }
+}
+
 void Game::goHome() {
   scene = S_HOME;
   infoScreen = false;
