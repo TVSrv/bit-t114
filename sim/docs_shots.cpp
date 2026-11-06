@@ -163,5 +163,19 @@ int main(int argc, char** argv) {
     g.s.hat = i % 2 == 0 ? 0 : (i % 6 + 1);
     shot(g, dir, allNames[i]);
   }
+  // Несколько поз реальной ходьбы: контакт ног с полом в разных формах,
+  // без фиктивного подъёма всего туловища.
+  static const Form walkingForms[] = {JUNIOR, JUNIOR, MIDDLE, HACKER, LEGACY};
+  static const char* walkingNames[] = {
+    "35-junior-walk-stance", "36-junior-walk-step",
+    "37-middle-walk", "38-hacker-walk", "39-legacy-walk"
+  };
+  for (int i = 0; i < 5; ++i) {
+    prepare(g, walkingForms[i], 12);
+    g.petTarget = 182;  // принудительно идёт по комнате, не стоит
+    g.walkPh = i == 0 ? 0 : 1.5707963f;
+    g.lastPetMs = g.now - 30;
+    shot(g, dir, walkingNames[i]);
+  }
   return 0;
 }

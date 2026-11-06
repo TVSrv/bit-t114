@@ -18,6 +18,7 @@ static constexpr int MENU_Y = 109; // начало нижней панели
  // вместе с мебелью, окнами, питомцем и слоем одеяла, без искажения спрайтов.
 static constexpr int ROOM_SHIFT_Y = 19;
 static constexpr int FLOOR = 120;  // линия пола соответствует оригинальному y=101 + 19
+static constexpr int PET_GROUND_OFFSET = 4;  // ноги питомца визуально упираются в пол
 
 static const char* FOOD_ITEMS[] = {"Кофе", "Пицца", "Печенька", "← Назад"};
 static const char* FOOD_HINT[] = {"+энергия, +немного сытости", "+сытость, +вес", "+настроение, много — вредно", ""};
@@ -418,9 +419,15 @@ void Game::drawPetHome(Canvas& c) {
   }
   if (cursor >= 0) { lookX = (cursor * (float)W / ICON_COUNT + 12 - petX) / 60; lookY = 1; }
   Pose p = basePose();
+  // Спрайт имеет прозрачные нижние строки, поэтому его геометрический низ
+  // на y=120 выглядел выше линии пола. Сдвигаем только домашнего питомца:
+  // фон/мебель, сон, мини-игры и прогулки сохраняют свои координаты.
+  p.y += PET_GROUND_OFFSET;
   if (walkingNow) {
     p.walk = walkPh;
-    p.lift = fabs_(fsin(walkPh)) * 2.2f;
+    // При ходьбе поднимается только переступающая нога в drawPet().
+    // Дополнительный подъём всего туловища создавал эффект левитации.
+    p.lift = 0;
     p.lookX = (float)petDir;
   }
   if (jumpAt && now - jumpAt < 900) {  // радость
@@ -550,7 +557,7 @@ void Game::drawPetHome(Canvas& c) {
     default: break;
   }
   float ph = formHeight((Form)s.form);
-  float headY = FLOOR - ph - p.lift - 6;
+  float headY = p.y - ph - p.lift - 6;
   if (s.asleep && s.form != EGG && s.form != GHOST) {
     const float BED_X = room ? room->bed : 196;  // где спит в этой комнате
     petX = BED_X; petTarget = BED_X;
