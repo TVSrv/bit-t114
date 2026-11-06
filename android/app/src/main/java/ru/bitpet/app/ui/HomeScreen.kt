@@ -69,6 +69,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -111,6 +112,7 @@ fun HomeScreen(onNeedPermissions: () -> Unit) {
     val scroll = rememberLazyListState()
     var picker by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
+    LaunchedEffect(selectedTab) { PetHub.mirrorWanted = selectedTab == 0 }
     val say: (String) -> Unit = { msg -> scope.launch { snack.currentSnackbarData?.dismiss(); snack.showSnackbar(msg) } }
 
     Box(Modifier.fillMaxSize().background(Pal.bg).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
@@ -232,6 +234,8 @@ private fun PillButton(icon: ImageVector, label: String, onClick: () -> Unit) {
 
 @Composable
 private fun DeviceWindow(link: BitLink.State) {
+    val firmwarePixels by PetHub.mirrorFrame.collectAsState()
+    val latestFirmwarePixels by rememberUpdatedState(firmwarePixels)
     val bmp = remember { Bitmap.createBitmap(PetRenderer.W, PetRenderer.H, Bitmap.Config.ARGB_8888) }
     val px = remember { IntArray(PetRenderer.W * PetRenderer.H) }
     var frame by remember { mutableIntStateOf(0) }
@@ -244,8 +248,15 @@ private fun DeviceWindow(link: BitLink.State) {
             withFrameNanos { t ->
                 val dt = if (last == 0L) 50 else ((t - last) / 1_000_000).toInt().coerceIn(1, 250)
                 last = t
-                PetRenderer.nativeFrame(dt, px)
-                bmp.setPixels(px, 0, PetRenderer.W, 0, 0, PetRenderer.W, PetRenderer.H)
+                val exact = latestFirmwarePixels
+                if (exact != null) {
+                    // Pixel-for-pixel firmware render; native C++ remains fallback
+                    // while a full BLE snapshot is being received or offline.
+                    bmp.setPixels(exact, 0, PetRenderer.W, 0, 0, PetRenderer.W, PetRenderer.H)
+                } else {
+                    PetRenderer.nativeFrame(dt, px)
+                    bmp.setPixels(px, 0, PetRenderer.W, 0, 0, PetRenderer.W, PetRenderer.H)
+                }
                 frame++
             }
         }

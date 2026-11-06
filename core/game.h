@@ -176,6 +176,7 @@ class Game {
   void tick(uint32_t dtMs);          // время идёт; можно большими шагами (ускорение)
   void button(Btn b);
   void render(Canvas& c);
+  void renderPhone(Canvas& c);  // exact firmware pixels, always pet home (not wake clock)
 
   // платформа -> игра
   void setBattery(int pct, bool charging) { batPct = pct; batCharging = charging; }

@@ -305,16 +305,8 @@ object PetHub {
             weatherSync.value = "Базовая погода не принята: ${basic ?: "нет ответа"}"
             return
         }
-        // The version probe may fail during initial connection. Retry it here
-        // rather than silently skipping WX and FC for the entire session.
-        val version = firmware.value ?: request("версия")
-            ?.takeIf { it.startsWith("V|") }?.removePrefix("V|")
-            ?.also { firmware.value = it }
-        if (version?.startsWith("0.43") != true) {
-            weatherSync.value = if (version == null) "Не определена версия платы — переподключите Bluetooth"
-                else "Прошивка ${version}: для прогноза нужна 0.43 или новее"
-            return
-        }
+        // Probe the actual WX capability instead of relying on a version prefix.
+        // This also supports all future 0.44+, 1.x and other firmware versions.
         val wx = request("wx ${w.humidity} ${w.windMs} ${w.feels} ${w.pressureMm} ${w.precipitation}")
         if (wx != "WX|1") {
             weatherSync.value = "Дополнительная погода не принята: ${wx ?: "нет ответа"}"

@@ -3,6 +3,7 @@
 #pragma once
 #include <bluefruit.h>
 #include "game.h"
+#include "mirror_tiles.h"
 
 class BleLink {
  public:
@@ -43,18 +44,60 @@ class BleLink {
     }
   }
 
+  bool mirrorEnabled() const {
+    return started && Bluefruit.connected() && mirrorActive && (int32_t)(mirrorUntil - millis()) > 0;
+  }
+
+  // Only called when the Android pet window is open. Tile fingerprints avoid
+  // retransmitting the static room and keep radio/CPU demand modest.
+  void streamPixels(const gfx::Color* pixels) {
+    if (!mirrorEnabled()) return;
+    int attempts = 0, sent = 0;
+    while (attempts++ < 45 && sent < 4) {
+      int id = nextTile;
+      nextTile = (uint16_t)((nextTile + 1) % mirror_tiles::COUNT);
+      uint32_t hash = mirror_tiles::fingerprint(pixels, id);
+      if (tileSeen[id] && hash == tileHash[id]) continue;
+      char packet[mirror_tiles::MAX_LINE];
+      if (mirror_tiles::encode(pixels, id, packet, sizeof packet) < 0) break;
+      if (!send(packet)) break; // retry the same tile after BLE congestion
+      tileSeen[id] = true;
+      tileHash[id] = hash;
+      ++sent;
+    }
+  }
+
   void poll() {
     if (!started) return;
     bool conn = Bluefruit.connected();
     if (conn && !wasConnected) send("\xC2\xBB Бит на связи. Напиши «помощь».");
+    if (!conn && wasConnected) {
+      mirrorActive = false;
+      mirrorUntil = 0;
+      memset(tileSeen, 0, sizeof tileSeen);
+    }
     wasConnected = conn;
     while (uart.available()) {
       int c = uart.read();
       if (c == '\n' || c == '\r') {
         if (len) {
           line[len] = 0;
-          game->command(line, reply, sizeof reply);
-          send(reply);
+          if (!strcmp(line, "mirror 1")) {
+            if (!mirrorEnabled()) {
+              memset(tileSeen, 0, sizeof tileSeen);
+              nextTile = 0;
+            }
+            mirrorActive = true;
+            mirrorUntil = millis() + 12000u;
+            send("M|1");
+          } else if (!strcmp(line, "mirror 0")) {
+            mirrorActive = false;
+            mirrorUntil = 0;
+            send("M|0");
+          } else {
+            game->command(line, reply, sizeof reply);
+            send(reply);
+          }
           len = 0;
         }
       } else if (len < (int)sizeof(line) - 1) {
@@ -80,10 +123,15 @@ class BleLink {
   char line[600];
   char reply[640];
   int len = 0;
+  bool mirrorActive = false;
+  uint32_t mirrorUntil = 0;
+  uint16_t nextTile = 0;
+  uint32_t tileHash[mirror_tiles::COUNT] = {};
+  bool tileSeen[mirror_tiles::COUNT] = {};
 
-  // по кускам размером с пакет; если очередь занята — подождать и повторить, ничего не теряя
-  void send(const char* s) {
-    if (!Bluefruit.connected()) return;
+  // Reliable NUS notifications; when blocked the tile must be retried.
+  bool send(const char* s) {
+    if (!Bluefruit.connected()) return false;
     uint16_t conn = Bluefruit.connHandle();
     BLEConnection* c = Bluefruit.Connection(conn);
     size_t chunk = c ? (size_t)(c->getMtu() - 3) : 20;
@@ -97,10 +145,11 @@ class BleLink {
       size_t k = n - i < chunk ? n - i : chunk;
       uint32_t t0 = millis();
       while (uart.write(conn, (const uint8_t*)buf + i, k) != k) {
-        if (!Bluefruit.connected() || millis() - t0 > 500) return;
+        if (!Bluefruit.connected() || millis() - t0 > 300) return false;
         delay(5);
       }
       i += k;
     }
+    return true;
   }
 };

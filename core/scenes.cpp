@@ -1748,6 +1748,27 @@ void Game::drawConfirm(Canvas& c) {
   }
 }
 
+void Game::renderPhone(Canvas& c) {
+  // Snapshot visually mirrors firmware while never exposing the wake weather
+  // dashboard or transient menu pages to Android. The actual board screen
+  // is already pushed before this offscreen render.
+  const Scene previousScene = scene;
+  const bool previousInfo = infoScreen, previousMenu = menuOpen;
+  const int previousCursor = cursor;
+  const uint32_t previousTransition = menuTransitionAt;
+  scene = S_HOME;
+  infoScreen = false;
+  menuOpen = false;
+  cursor = -1;
+  menuTransitionAt = now - MENU_ANIM_MS;
+  drawHome(c);
+  menuTransitionAt = previousTransition;
+  cursor = previousCursor;
+  menuOpen = previousMenu;
+  infoScreen = previousInfo;
+  scene = previousScene;
+}
+
 void Game::render(Canvas& c) {
   switch (scene) {
     case S_HOME: drawHome(c); break;
