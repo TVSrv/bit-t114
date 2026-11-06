@@ -61,6 +61,7 @@ object PetHub {
     val stepsOn = MutableStateFlow(true)        // шагомер телефона → прогулки питомца
     val place = MutableStateFlow<Weather.Place?>(null)   // город для погоды
     val weatherNow = MutableStateFlow<Weather.Now?>(null)
+    val weatherSync = MutableStateFlow("Погода ещё не передана на плату")
     private lateinit var steps: Steps
     val savedAddress = MutableStateFlow<String?>(null)
     @Volatile var uiVisible = false
@@ -182,6 +183,7 @@ object PetHub {
 
     private fun onReady() {
         scope.launch {
+            firmware.value = null  // after an OTA update do not trust a cached version
             if (syncTime.value) {
                 val now = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.US).format(Date())
                 request("время $now")
@@ -280,23 +282,67 @@ object PetHub {
         return true
     }
 
-    fun clearCity() { place.value = null; weatherNow.value = null; prefs().edit().remove("place").apply() }
+    fun clearCity() {
+        place.value = null
+        weatherNow.value = null
+        weatherSync.value = "Город не выбран"
+        prefs().edit().remove("place").apply()
+    }
 
-    // Два компактных расширения отправляются только в прошивку 0.43+.
-    // Старой 0.41/0.42 оставляем прежнюю команду "погода K T".
+    fun updateWeather() {
+        scope.launch { sendWeather() }
+    }
+
+    // The firmware expects W|kind, WX|1 and FC|count acknowledgements.
+    // A current temperature alone is NOT proof that the rich forecast arrived.
     private suspend fun pushWeather(w: Weather.Now) {
-        if (link.state.value != BitLink.State.READY) return
-        if (request("погода ${w.kind} ${w.temp}") == null) return
-        if (firmware.value?.startsWith("0.43") != true) return
-        request("wx ${w.humidity} ${w.windMs} ${w.feels} ${w.pressureMm} ${w.precipitation}")
+        if (link.state.value != BitLink.State.READY) {
+            weatherSync.value = "Погода загружена, но Bluetooth не подключён"
+            return
+        }
+        val basic = request("погода ${w.kind} ${w.temp}")
+        if (basic != "W|${w.kind}") {
+            weatherSync.value = "Базовая погода не принята: ${basic ?: "нет ответа"}"
+            return
+        }
+        // The version probe may fail during initial connection. Retry it here
+        // rather than silently skipping WX and FC for the entire session.
+        val version = firmware.value ?: request("версия")
+            ?.takeIf { it.startsWith("V|") }?.removePrefix("V|")
+            ?.also { firmware.value = it }
+        if (version?.startsWith("0.43") != true) {
+            weatherSync.value = if (version == null) "Не определена версия платы — переподключите Bluetooth"
+                else "Прошивка ${version}: для прогноза нужна 0.43 или новее"
+            return
+        }
+        val wx = request("wx ${w.humidity} ${w.windMs} ${w.feels} ${w.pressureMm} ${w.precipitation}")
+        if (wx != "WX|1") {
+            weatherSync.value = "Дополнительная погода не принята: ${wx ?: "нет ответа"}"
+            return
+        }
         val points = w.hourly.take(6)
-        request("fc ${points.size}" +
+        if (points.isEmpty()) {
+            weatherSync.value = "Температура передана, но Open-Meteo не вернул почасовой прогноз"
+            return
+        }
+        val ack = request("fc ${points.size}" +
             points.joinToString("") { " ${it.hour} ${it.temp} ${it.kind}" })
+        weatherSync.value = if (ack == "FC|${points.size}") {
+            "Передано на T114: температура и ${points.size} точек прогноза"
+        } else {
+            "Почасовой прогноз не принят: ${ack ?: "нет ответа"}"
+        }
     }
 
     private suspend fun sendWeather() {
-        val p = place.value ?: return
-        val w = Weather.current(p) ?: return
+        val p = place.value ?: run {
+            weatherSync.value = "Выберите город для погоды"
+            return
+        }
+        val w = Weather.current(p) ?: run {
+            weatherSync.value = "Не удалось получить прогноз Open-Meteo — проверьте интернет"
+            return
+        }
         weatherNow.value = w
         pushWeather(w)
     }

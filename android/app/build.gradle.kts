@@ -15,8 +15,8 @@ android {
         applicationId = "ru.bitpet.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.20-weather-test"
+        versionCode = 21
+        versionName = "0.21-weather-sync-test"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         externalNativeBuild { cmake { cppFlags += "-std=c++17" } }
     }

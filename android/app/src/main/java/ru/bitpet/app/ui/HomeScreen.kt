@@ -694,6 +694,7 @@ private fun ToggleRow(title: String, hint: String, value: Boolean, onChange: (Bo
 private fun WeatherRow() {
     val place by PetHub.place.collectAsState()
     val now by PetHub.weatherNow.collectAsState()
+    val syncStatus by PetHub.weatherSync.collectAsState()
     var edit by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -706,7 +707,9 @@ private fun WeatherRow() {
             val w = now
             Text(p.name + (w?.let { " · ${Weather.names[it.kind]}, ${if (it.temp > 0) "+" else ""}${it.temp}°" } ?: ""),
                 color = Pal.muted, fontSize = 12.sp)
+            Text(syncStatus, color = Pal.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
             Row {
+                Text("Обновить погоду", color = Pal.accent, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp, end = 16.dp).clickable { PetHub.updateWeather() })
                 Text("Сменить город", color = Pal.accent, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp, end = 16.dp).clickable { edit = true; text = "" })
                 Text("Выключить", color = Pal.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp).clickable { PetHub.clearCity() })
             }

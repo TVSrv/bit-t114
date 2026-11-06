@@ -43,7 +43,7 @@ object Weather {
             "https://api.open-meteo.com/v1/forecast?latitude=${p.lat}&longitude=${p.lon}" +
                 "&current=temperature_2m,weather_code,relative_humidity_2m,apparent_temperature,wind_speed_10m,pressure_msl" +
                 "&hourly=temperature_2m,weather_code,precipitation_probability" +
-                "&wind_speed_unit=ms&timezone=auto&forecast_days=2"
+                "&wind_speed_unit=ms&timezone=auto&forecast_days=3"
         )
         val cur = root.getJSONObject("current")
         val hourly = root.optJSONObject("hourly")
@@ -51,9 +51,11 @@ object Weather {
         val temps = hourly?.optJSONArray("temperature_2m")
         val codes = hourly?.optJSONArray("weather_code")
         val pop = hourly?.optJSONArray("precipitation_probability")
-        val key = cur.optString("time").take(13)  // ISO local time from same response
+        val key = cur.optString("time").take(13)  // local ISO time from the same Open-Meteo response
+        // Find the current or next forecast hour. Exact-hour-only matching
+        // could leave the forecast empty when hourly timestamps shifted.
         val closest = if (times != null && key.length == 13) {
-            (0 until times.length()).firstOrNull { times.optString(it).startsWith(key) } ?: -1
+            (0 until times.length()).firstOrNull { times.optString(it).take(13) >= key } ?: -1
         } else -1
         val points = if (closest >= 0 && times != null && temps != null && codes != null) {
             (closest until minOf(times.length(), temps.length(), codes.length()))

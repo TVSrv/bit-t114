@@ -1020,17 +1020,21 @@ void Game::drawInfoScreen(Canvas& c) {
         c.text(font_small, 172, 66, b, muted);
       }
     } else {
-      c.text(font_small, 121, 66, "С телефона", muted);
+      c.text(font_small, 121, 66, "Нет деталей", muted);
     }
   } else {
     c.text(font_ui, 125, 37, "Нет погоды", pal::yellow);
     c.text(font_small, 125, 55, "Нужен Android", muted);
   }
 
-  // Лента прогноза: шесть реальных точек каждые три часа.
-  c.roundRect(6, 81, 228, 34, 5, line);
-  c.roundRect(7, 82, 226, 32, 4, panel);
-  if (hasWeatherExtra() && forecastCount > 0) {
+  // Нижняя область без подсказок кнопок: прогноз занимает всё место,
+  // когда нет дополнительных показателей; при наличии показателей
+  // оставляем снизу строку с реальными значениями.
+  const bool extra = hasWeatherExtra();
+  const int forecastHeight = extra ? 34 : 48;
+  c.roundRect(6, 81, 228, forecastHeight, 5, line);
+  c.roundRect(7, 82, 226, forecastHeight - 2, 4, panel);
+  if (extra && forecastCount > 0) {
     for (int i = 0; i < forecastCount && i < 6; ++i) {
       const int x = 10 + i * 37;
       if (i) c.vline(x - 3, 85, 25, line);
@@ -1042,13 +1046,13 @@ void Game::drawInfoScreen(Canvas& c) {
       c.text(font_small, x + 33, 102, b, pal::white, 255, RIGHT);
     }
   } else {
-    c.text(font_small, 13, 90, "ПОГОДА ПО ЧАСАМ", pal::cyan);
-    c.text(font_small, 13, 102, "Нет прогноза — подключите телефон", muted);
+    c.text(font_small, 13, 88, "ПРОГНОЗ ПО ЧАСАМ", pal::cyan);
+    c.text(font_small, 13, 105, "Нет почасового прогноза", muted);
   }
 
-  // Подвал: только подтвержденные дополнительные значения.
-  c.hline(7, 118, 226, line);
-  if (hasWeatherExtra()) {
+  // Подвал отображается только с реальными погодными значениями.
+  if (extra) {
+    c.hline(7, 118, 226, line);
     if (feelsC > -60 && feelsC < 70) {
       sfmt(b, sizeof b, "Ощ. %s%d°", feelsC > 0 ? "+" : "", (int)feelsC);
       c.text(font_small, 10, 122, b, muted);
@@ -1061,9 +1065,6 @@ void Game::drawInfoScreen(Canvas& c) {
       sfmt(b, sizeof b, "Осадки %d%%", (int)precipitationPct);
       c.text(font_small, 227, 122, b, pal::cyan, 255, RIGHT);
     }
-  } else {
-    c.text(font_small, 13, 122, "Коротко: питомец", muted);
-    c.text(font_small, 227, 122, "Долго: меню", pal::cyan, 255, RIGHT);
   }
 }
 
