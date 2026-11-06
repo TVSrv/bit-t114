@@ -242,5 +242,16 @@ int main(int argc, char** argv) {
   shot(g, dir, "56-bug-left-spawn");
   g.s.reserved4[2] = 196;
   shot(g, dir, "57-bug-right-spawn");
+
+  // «Реакция»: сигналы должны быть различимы и по экрану, и по LED.
+  prepare(g, HACKER, 12);
+  g.s.leds = 0;
+  g.startGame(G_REACT);
+  g.now = g.rGoAt - 50;
+  shot(g, dir, "58-reaction-wait-red");
+  g.now = g.rGoAt + 180;
+  shot(g, dir, "59-reaction-ready-green");
+  g.button(B_SHORT);
+  shot(g, dir, "60-reaction-result-180ms");
   return 0;
 }

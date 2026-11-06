@@ -406,9 +406,15 @@ object PetHub {
             else -> null
         }
         if (kind != null) Sounds.play(kind, sounds.value)
-        if ("будильник выключен" in t) cancel(NOTE_ALARM)
-        else if ("появился баг" in t) notify(text, kind, NOTE_BUGS)
-        else if ("на связи" !in t) notify(text, kind)
+        when {
+            "будильник выключен" in t -> cancel(NOTE_ALARM)
+            "просьба выполнена" in t -> {
+                cancel(NOTE_CALL)
+                cancel(NOTE_BUGS)
+            }
+            "появился баг" in t -> notify(text, kind, NOTE_BUGS)
+            "на связи" !in t -> notify(text, kind)
+        }
         scope.launch { refresh() }
     }
 

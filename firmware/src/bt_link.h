@@ -70,7 +70,11 @@ class BleLink {
   void poll() {
     if (!started) return;
     bool conn = Bluefruit.connected();
-    if (conn && !wasConnected) send("\xC2\xBB Бит на связи. Напиши «помощь».");
+    if (conn && !wasConnected) {
+      // Messages from before connecting are history, not new notifications.
+      lastSeq = game->eventSeq;
+      send("\xC2\xBB Бит на связи. Напиши «помощь».");
+    }
     if (!conn && wasConnected) {
       mirrorActive = false;
       mirrorUntil = 0;
@@ -104,12 +108,23 @@ class BleLink {
         line[len++] = (char)c;
       }
     }
-    if (game->eventSeq != lastSeq) {
+    if (!conn) {
       lastSeq = game->eventSeq;
-      if (conn) {  // события помечаем «» », чтобы приложение отличало их от ответов на команды
-        char ev[80];
-        snprintf(ev, sizeof ev, "\xC2\xBB %s", game->eventText);
-        send(ev);
+    } else {
+      // A minute tick can trigger multiple events: a bug, sickness and a
+      // care call. Previously only the last event was sent, silently losing
+      // the other Android notifications. Replay all still-buffered alerts.
+      uint16_t pending = (uint16_t)(game->eventSeq - lastSeq);
+      if (pending > pet::Game::EVENT_HISTORY)
+        lastSeq = (uint16_t)(game->eventSeq - pet::Game::EVENT_HISTORY);
+      while (lastSeq != game->eventSeq) {
+        const uint16_t next = (uint16_t)(lastSeq + 1);
+        const auto& record = game->events[next % pet::Game::EVENT_HISTORY];
+        if (record.seq != next) { lastSeq = next; continue; }
+        char ev[88];
+        snprintf(ev, sizeof ev, "\xC2\xBB %s", record.text);
+        if (!send(ev)) break;  // preserve a pending alert for retry
+        lastSeq = next;
       }
     }
   }

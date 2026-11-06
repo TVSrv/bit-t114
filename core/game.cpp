@@ -1153,6 +1153,8 @@ uint32_t Game::nightLightColor() const {
 }
 
 uint32_t Game::ledColorScreenOff() const {
+  // Alarm remains visible even during wake-up latency or if LED effects are off.
+  if (scene == S_ALARM) return ledColor();
   uint32_t night = nightLightColor();
   if (night) return night; // никакие просьбы не прерывают свет ночника
   if (!s.leds) return 0;

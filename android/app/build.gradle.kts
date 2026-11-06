@@ -15,8 +15,8 @@ android {
         applicationId = "ru.bitpet.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 30
-        versionName = "0.30-hud-fit-mirror"
+        versionCode = 31
+        versionName = "0.31-alerts-fix"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         externalNativeBuild { cmake { cppFlags += "-std=c++17" } }
     }

@@ -593,7 +593,11 @@ void Game::drawAlarm(Canvas& c) {
   p.lift = fabs_(fsin(now * 0.008f)) * 12;
   drawPet(c, (Form)s.form, p);
   c.text(font_small, 120, 116, "нажми — проснулся", pal::white, 255, CENTER);
-  if (t > 180000) { alarmActive = false; goHome(); }  // три минуты звонка
+  if (t > 180000) {
+    alarmActive = false;
+    goHome();
+    event("Будильник выключен");  // остановить звонок и уведомление Android
+  }  // три минуты звонка
 }
 
 // --- статус: достижения и коллекция ---

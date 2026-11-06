@@ -39,7 +39,7 @@ jobs:
                   target / (ppm.stem + ".png"), format="PNG", optimize=True
               )
               names.append(ppm.stem)
-          assert len(names) == 57, names
+          assert len(names) == 60, names
           print("Accurate images rendered from source:", names)
           PY
       - name: Upload visual proof

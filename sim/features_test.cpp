@@ -1208,6 +1208,111 @@ int main() {
         if (fb[y * gfx::W + x] != neutral[y * gfx::W + x]) largeBatteryShown = true;
     check(largeBatteryShown, "крупная батарея отображает уровень и зарядку в единой карточке");
   }
+  // 0.43.12: full LED / reaction / notification regression.
+  {
+    Game night; memset(&night.s, 0, sizeof night.s);
+    night.init(22001); night.demo(0);
+    night.s.form = JUNIOR; night.s.nightLight = 1; night.s.leds = 0;
+    night.s.epoch = daysFrom2000(2026, 11, 6) * 86400u + 21 * 3600u + 5 * 60u;
+    night.s.asleep = 0; night.s.lightOff = 0;
+    night.now = 5000;
+    night.minute();
+    check(night.s.asleep == 1 && night.s.lightOff == 0 &&
+          night.nightLightColor() == 0x482000,
+          "ночник включается автоматически при ночном сне, даже при включённом свете комнаты");
+    check(night.ledColor() == 0x482000 && night.ledColorScreenOff() == 0x482000,
+          "автоматический ночник работает с включённым и погашенным экраном при LED-эффектах выкл");
+    night.now += 610000;
+    check(night.nightLightColor() != 0 && night.nightLightColor() < 0x482000,
+          "автоматический ночник плавно затухает после 10 минут");
+    night.now += 51000;
+    check(night.nightLightColor() == 0, "автоматический ночник гаснет через 11 минут");
+
+    Game manual; memset(&manual.s, 0, sizeof manual.s);
+    manual.init(22002); manual.demo(0);
+    manual.s.form = MIDDLE; manual.s.energy = 100;
+    manual.s.leds = 0; manual.s.nightLight = 1;
+    manual.activate(I_LIGHT);
+    check(manual.s.lightOff && manual.s.asleep == 0 &&
+          manual.ledColorScreenOff() == 0x482000,
+          "ночник при ручном выключении света работает даже у бодрствующего питомца с энергией 100%");
+    manual.openList(2); manual.listSel = 5; manual.listChoose();
+    check(!manual.s.nightLight && manual.ledColorScreenOff() == 0,
+          "настройка «Ночник: выкл» полностью отключает ночную подсветку");
+    manual.listChoose();
+    check(manual.s.nightLight && manual.nightLightColor() == 0x482000,
+          "включение ночника в темноте запускает свежие 10 минут");
+
+    Game reaction; memset(&reaction.s, 0, sizeof reaction.s);
+    reaction.init(22003); reaction.demo(0);
+    reaction.s.form = HACKER; reaction.s.leds = 0;
+    reaction.startGame(G_REACT);
+    reaction.now = reaction.rGoAt - 50;
+    check(reaction.ledColor() == 0x400000,
+          "«Реакция»: до сигнала обе LED красные, даже при выключенных эффектах");
+    reaction.now = reaction.rGoAt;
+    check(reaction.ledColor() == 0x00FF20,
+          "«Реакция»: после сигнала обе LED зелёные, независимо от LED-эффектов");
+    reaction.button(B_SHORT);
+    check(reaction.gPhase == 1 && reaction.rTime == 0,
+          "«Реакция»: результат нажания в момент сигнала обрабатывается");
+    reaction.s.leds = 1;
+    reaction.gPhase = 0; reaction.rGoAt = reaction.now + 300;
+    check(reaction.ledColor() == 0x400000,
+          "«Реакция»: красный сигнал не зависит от обычных уведомлений");
+
+    Game alerts; memset(&alerts.s, 0, sizeof alerts.s);
+    alerts.init(22004); alerts.demo(0);
+    alerts.s.form = MIDDLE; alerts.s.nightLight = 0;
+    alerts.s.leds = 1; alerts.s.callKind = C_BUGS;
+    alerts.now = 0;
+    check(alerts.ledColorScreenOff() == 0xA020FF,
+          "при погашенном дисплее просьба о багах видна фиолетовым");
+    alerts.now = 500;
+    check(alerts.ledColorScreenOff() == 0xA020FF,
+          "уведомление остаётся видимым 700 мс — опрос дисплея не пропускает вспышку");
+    alerts.now = 700;
+    check(alerts.ledColorScreenOff() == 0,
+          "между вспышками уведомлений светодиоды гаснут");
+    alerts.s.callKind = C_SICK;
+    alerts.now = 4000;
+    check(alerts.ledColorScreenOff() == 0xFF0010,
+          "болезнь передаёт красное уведомление при выключенном дисплее");
+    alerts.s.callKind = C_NONE;
+    alerts.s.leds = 0;
+    alerts.scene = S_ALARM;
+    alerts.now = 4100;
+    check(alerts.ledColor() != 0 && alerts.ledColorScreenOff() == alerts.ledColor(),
+          "будильник использует LED при отключённых эффектах, с экраном и без");
+    alerts.scene = S_HOME;
+
+    const uint16_t seq0 = alerts.eventSeq;
+    alerts.event("Бит зовёт: болеет");
+    alerts.event("Появился баг на полу");
+    alerts.event("Достижение: Чистюля");
+    check(alerts.eventSeq == (uint16_t)(seq0 + 3) &&
+          !strcmp(alerts.events[(seq0 + 1) % Game::EVENT_HISTORY].text, "Бит зовёт: болеет") &&
+          !strcmp(alerts.events[(seq0 + 2) % Game::EVENT_HISTORY].text, "Появился баг на полу") &&
+          !strcmp(alerts.events[(seq0 + 3) % Game::EVENT_HISTORY].text, "Достижение: Чистюля"),
+          "несколько событий за один такт попадают в очередь и не заменяют друг друга");
+    alerts.s.callKind = C_HUNGER;
+    alerts.resolveCall(C_HUNGER);
+    check(alerts.s.callKind == C_NONE &&
+          !strcmp(alerts.eventText, "Бит: просьба выполнена"),
+          "закрытая просьба отправляет Android событие для снятия уведомления");
+    alerts.s.callKind = C_BUGS;
+    alerts.s.bugs = 0;
+    alerts.updateCalls();
+    check(alerts.s.callKind == C_NONE &&
+          !strcmp(alerts.eventText, "Бит: просьба выполнена"),
+          "автоматическое разрешение проблемы закрывает уведомление о багах");
+    alerts.scene = S_ALARM; alerts.sceneStart = alerts.now - 180100;
+    alerts.alarmActive = true;
+    alerts.drawAlarm(cv);
+    check(alerts.scene == S_HOME && !alerts.alarmActive &&
+          !strcmp(alerts.eventText, "Будильник выключен"),
+          "будильник по таймауту сообщает Android, что звук нужно остановить");
+  }
   printf(fails ? "\nОшибок: %d\n" : "\nВсё верно\n", fails);
   return fails != 0;
 }

@@ -1,3 +1,3 @@
 // Версия прошивки: показывается в приложении (команда «версия»). Менять при каждом выпуске.
 #pragma once
-#define BIT_VERSION "0.43.11-random-bugs"
+#define BIT_VERSION "0.43.12-nightlight-alerts"
