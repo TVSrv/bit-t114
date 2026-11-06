@@ -793,6 +793,13 @@ int main() {
         for (int typing = 0; typing <= 1; ++typing) {
           monitor.now = phases[0];
           monitor.deskUntil = typing ? 60000u : 0u;
+          monitor.s.asleep = 1;
+          cv.noClip();
+          cv.clear(pal::bg);
+          monitor.drawBackground(cv, false);
+          // Независимый эталон комнаты без анимированных строк.
+          std::vector<gfx::Color> bareScreen(fb, fb + gfx::W * gfx::H);
+          monitor.s.asleep = 0;
           cv.noClip();
           cv.clear(pal::bg);
           monitor.drawBackground(cv, false);
@@ -806,16 +813,19 @@ int main() {
             // должны происходить только внутри действующих мониторов.
             for (int y = 0; y < gfx::H; ++y) {
               for (int x = 0; x < gfx::W; ++x) {
-                if (fb[y * gfx::W + x] == original[y * gfx::W + x]) continue;
+                bool phaseChanged = fb[y * gfx::W + x] != original[y * gfx::W + x];
+                bool overPaint = fb[y * gfx::W + x] != bareScreen[y * gfx::W + x];
+                if (!phaseChanged && !overPaint) continue;
                 bool inside = false;
                 for (int m = 0; m < panel.screens; ++m) {
                   const uint8_t* sc = panel.screen[m];
-                  const int x0 = sc[0] + 2, y0 = sc[1] + sceneTop + shiftY + 2;
-                  const int x1 = sc[2] - 2, y1 = sc[3] + sceneTop + shiftY - 1;
+                  // Physical bezel excluded: stricter than the old sc+2 test.
+                  const int x0 = sc[0] + 5, y0 = sc[1] + sceneTop + shiftY + 3;
+                  const int x1 = sc[2] - 4, y1 = sc[3] + sceneTop + shiftY - 3;
                   if (x >= x0 && x < x1 && y >= y0 && y < y1) { inside = true; break; }
                 }
                 if (!inside) confined = false;
-                else animated = true;
+                else if (phaseChanged) animated = true;
               }
             }
           }
@@ -825,7 +835,7 @@ int main() {
         }
       }
     }
-    check(confined, "анимация экранов: 9 форм, 5 тем и 2 режима не рисуют строки вне рамок");
+    check(confined, "9 форм, 5 тем, 2 режима: ни строки, ни подсветка не касаются рамки монитора");
     check(animated, "строки мониторов продолжают анимироваться после ограничения");
     check(clipRestored, "после рисования мониторов Canvas возвращает полную область отрисовки");
 
