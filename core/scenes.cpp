@@ -261,10 +261,9 @@ static int callIcon(uint8_t k) {
 }
 
 void Game::drawTopBar(Canvas& c, bool vitals, bool showTime) {
-  // Five cohesive compact HUD cards. 4 equal status metrics + one wide
-  // battery tile with a large percentage AND a readable charge indicator.
-  // The 240x135 screen has only 22 header pixels, so every card uses the
-  // same baseline, padding and rounded frame. Content never enters the room.
+  // Pixel-accurate 240x22 HUD: four 43px cards plus a compact 54px battery.
+  // font_small("100%") is 31px wide and collided with the icon; the
+  // 20px-wide monospaced percentage fits all four cards even at 100%.
   if (vitals && !showTime && s.form != EGG && s.alive) {
     c.fillRect(0, 0, W, TOP, pal::gutter);
     const int values[4] = {s.hunger, s.happy, s.energy, s.discipline};
@@ -274,11 +273,11 @@ void Game::drawTopBar(Canvas& c, bool vitals, bool showTime) {
       s.energy < 15 && !s.asleep, s.callKind == C_FAKE
     };
     for (int i = 0; i < 4; ++i) {
-      const int x = 2 + i * 41;
+      const int x = 2 + i * 45;
       const int v = clampi(values[i], 0, 100);
       const Color accent = alerts[i] || v < 25 ? pal::red : colors[i];
-      c.roundRect(x, 1, 39, 20, 4, pal::line);
-      c.roundRect(x + 1, 2, 37, 18, 3, pal::editor);
+      c.roundRect(x, 1, 43, 20, 4, pal::line);
+      c.roundRect(x + 1, 2, 41, 18, 3, pal::editor);
       // All glyphs and percentages share the same size and baseline.
       if (i == 0) drawIcon(c, I_FOOD, x + 8, 9.5f, accent, now, 0.55f);
       if (i == 1) drawHeart(c, x + 8, 9.5f, 1.1f, accent);
@@ -286,30 +285,33 @@ void Game::drawTopBar(Canvas& c, bool vitals, bool showTime) {
       if (i == 3) drawIcon(c, I_REVIEW, x + 8, 9.5f, accent, now, 0.55f);
       char value[8];
       sfmt(value, sizeof value, "%d%%", v);
-      c.text(font_small, x + 36, 3, value, pal::white, 255, RIGHT);
-      c.roundRect(x + 4, 16, 31, 2, 1, pal::gutter);
-      if (v) c.roundRect(x + 4, 16, 31.0f * v / 100, 2, 1, accent);
-      if (alerts[i]) c.hline(x + 4, 19, 31, pal::red);
+      c.text(font_mono, x + 40, 4, value, pal::white, 255, RIGHT);
+      c.roundRect(x + 4, 16, 35, 2, 1, pal::gutter);
+      if (v) c.roundRect(x + 4, 16, 35.0f * v / 100, 2, 1, accent);
+      if (alerts[i]) c.hline(x + 4, 19, 35, pal::red);
     }
 
-    const int x = 167;
+    const int x = 182;
     const int percent = clampi(batPct, 0, 100);
     const Color chargeColor = batCharging ? pal::green :
                               (percent <= 15 ? pal::red : (percent <= 40 ? pal::yellow : pal::green));
-    c.roundRect(x, 1, 71, 20, 4, pal::line);
-    c.roundRect(x + 1, 2, 69, 18, 3, pal::editor);
+    c.roundRect(x, 1, 54, 20, 4, pal::line);
+    c.roundRect(x + 1, 2, 52, 18, 3, pal::editor);
     char value[8];
     sfmt(value, sizeof value, "%d%%", percent);
-    c.text(font_ui, x + 42, 2, value, chargeColor, 255, RIGHT);
+    // font_small (99% = 24px) is readable; its 100% is 31px and
+    // cannot fit beside the icon, so use fixed-width for that value.
+    const Font& batteryFont = percent == 100 ? font_mono : font_small;
+    c.text(batteryFont, x + 29, 3, value, chargeColor, 255, RIGHT);
 
-    // Enlarged 23x12 battery, in the same capsule as the numeric readout.
-    const int bx = x + 44, by = 5;
-    c.roundRect(bx, by, 21, 12, 2, pal::fg);
-    c.roundRect(bx + 1, by + 1, 19, 10, 1, pal::gutter);
-    c.fillRect(bx + 21, by + 4, 3, 4, pal::fg);
-    int filled = (17 * percent + 50) / 100;
-    if (filled > 0) c.roundRect(bx + 2, by + 2, filled, 8, 1, chargeColor);
-    if (batCharging) drawBolt(c, bx + 11, by + 6, 0.8f, pal::white);
+    // Compact battery within the same capsule, with space for digits.
+    const int bx = 214, by = 6;
+    c.roundRect(bx, by, 18, 10, 2, pal::fg);
+    c.roundRect(bx + 1, by + 1, 16, 8, 1, pal::gutter);
+    c.fillRect(bx + 18, by + 3, 3, 4, pal::fg);
+    int filled = (14 * percent + 50) / 100;
+    if (filled > 0) c.roundRect(bx + 2, by + 2, filled, 6, 1, chargeColor);
+    if (batCharging) drawBolt(c, bx + 9, by + 5, 0.75f, pal::white);
     return;
   }
   c.fillRect(0, 0, W, TOP, pal::gutter);

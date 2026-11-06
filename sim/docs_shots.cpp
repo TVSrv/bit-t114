@@ -220,5 +220,14 @@ int main(int argc, char** argv) {
   g.s.hunger = 12; g.s.happy = 25; g.s.energy = 15; g.s.discipline = 40;
   g.s.callKind = C_HUNGER; g.setBattery(7, false);
   shot(g, dir, "52-hud-unified-alert");
+
+  // Exact stress cases: the previous HUD overprinted the discipline icon.
+  prepare(g, HACKER, 12);
+  g.s.hunger = 100; g.s.happy = 100; g.s.energy = 100; g.s.discipline = 100;
+  g.setBattery(100, false);
+  shot(g, dir, "53-hud-all-100-no-overlap");
+  g.s.hunger = 99; g.s.happy = 0; g.s.energy = 100; g.s.discipline = 99;
+  g.setBattery(83, false);
+  shot(g, dir, "54-hud-mixed-99-0-battery");
   return 0;
 }

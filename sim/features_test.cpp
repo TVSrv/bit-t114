@@ -1067,7 +1067,7 @@ int main() {
     m.drawTopBar(cv, true, false);
     std::vector<gfx::Color> neutral(fb, fb + gfx::W * gfx::H);
     bool cardsOk = true;
-    const int cardStarts[] = {2, 43, 84, 125};
+    const int cardStarts[] = {2, 47, 92, 137};
     for (int metric = 0; metric < 4; ++metric) {
       m.s.hunger = 70; m.s.happy = 70; m.s.energy = 70; m.s.discipline = 70;
       if (metric == 0) m.s.hunger = 0;
@@ -1080,13 +1080,30 @@ int main() {
       for (int y = 0; y < gfx::H; ++y)
         for (int x = 0; x < gfx::W; ++x)
           if (fb[y * gfx::W + x] != neutral[y * gfx::W + x]) {
-            if (x >= cardStarts[metric] && x < cardStarts[metric] + 39 && y < 22)
+            if (x >= cardStarts[metric] && x < cardStarts[metric] + 43 && y < 22)
               ownChanged = true;
             else cardsOk = false;
           }
       if (!ownChanged) cardsOk = false;
     }
-    check(cardsOk, "все четыре HUD-карточки независимы и не задевают соседние индикаторы");
+    check(cardsOk, "четыре расширенные карточки не перекрывают друг друга");
+    // The old HUD bug was typography: font_small("100%") is 31 px wide.
+    // Verify the revised status font never reaches the icon (right of x+15).
+    check(Canvas::width(font_mono, "100%") <= 24 &&
+          40 - Canvas::width(font_mono, "100%") >= 16,
+          "100% вписывается в расширенную карточку без наложения на значок");
+    check(Canvas::width(font_small, "99%") <= 25 &&
+          Canvas::width(font_mono, "100%") <= 25,
+          "процент батареи помещается левее корпуса при 99 и 100%");
+    bool batteryBoxStable = true;
+    m.s.hunger = 100; m.s.happy = 100; m.s.energy = 100; m.s.discipline = 100;
+    m.setBattery(100, false);
+    cv.clear(pal::bg); m.drawTopBar(cv, true, false);
+    for (int y = 0; y < 22; ++y) {
+      if (fb[y * gfx::W + 180] != pal::gutter && y > 1 && y < 21)
+        batteryBoxStable = false; // gap before battery must remain empty
+    }
+    check(batteryBoxStable, "между дисциплиной и батареей нет наложений при всех 100%");
     m.s.hunger = 70; m.s.happy = 70; m.s.energy = 70; m.s.discipline = 70;
     m.setBattery(100, true);
     cv.clear(pal::bg); m.drawTopBar(cv, true, false);
