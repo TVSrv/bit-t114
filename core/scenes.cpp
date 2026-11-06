@@ -202,23 +202,35 @@ void Game::drawBackground(Canvas& c, bool dark) {
   const Color cols[4] = {T.kw, T.str, T.fn, T.cmt};
   for (int m = 0; m < R.screens; m++) {
     const uint8_t* sc = R.screen[m];
-    int x = sc[0] + 2, y = sc[1] + TOP + ROOM_SHIFT_Y + 2, sw = sc[2] - sc[0] - 4, sh = sc[3] - sc[1] - 3;
+    const int x = sc[0] + 2, y = sc[1] + TOP + ROOM_SHIFT_Y + 2;
+    const int sw = sc[2] - sc[0] - 4, sh = sc[3] - sc[1] - 3;
     if (sw < 4 || sh < 3) continue;
+
+    // Подсветка рамки статична и остаётся в пределах физического монитора.
     c.fillRect(x - 1, y - 1, sw + 2, sh + 2, T.str, 14);
-    int lines = sh / 3;
-    uint32_t page = now / (typing ? 1800 : 4000) + m * 7;
-    int row = (int)((now / (typing ? 90 : 260)) % (uint32_t)(sw + 6));  // набрано в последней строке
-    for (int i = 0; i < lines; i++) {
-      uint32_t h = (uint32_t)(page * 8 + i + 1) * 2654435761u;
-      int ind = (int)((h >> 20) % 3) * 2, w = sw / 3 + (int)((h >> 24) % (uint32_t)(sw - sw / 3 + 1));
-      if (ind + w > sw) w = sw - ind;
-      int len = i == lines - 1 ? (row < w ? row : w) : w;
-      int split = 2 + (int)((h >> 12) % 4);  // ключевое слово и остальное — двумя цветами
-      if (split > len) split = len;
-      c.fillRect(x + ind, y + i * 3, split, 2, cols[(h >> 16) % 4]);
-      if (len - split - 1 > 0) c.fillRect(x + ind + split + 1, y + i * 3, len - split - 1, 2, cols[(h >> 8) % 4]);
-      if (i == lines - 1 && (now / 400) & 1 && ind + len + 3 <= sw) c.fillRect(x + ind + len + 1, y + i * 3, 2, 2, T.txt);
+
+    // Любое движение курсора или строки кода ОБЯЗАТЕЛЬНО обрезается
+    // границами стекла конкретного монитора, а не всего экрана T114.
+    // Иначе бегущие полоски могут попадать на корпус монитора и стену.
+    c.clip(x, y, x + sw, y + sh);
+    const int lines = sh / 3;
+    const uint32_t page = now / (typing ? 1800 : 4000) + m * 7;
+    const int row = (int)((now / (typing ? 90 : 260)) % (uint32_t)(sw + 6));
+    for (int i = 0; i < lines; ++i) {
+      const uint32_t h = (uint32_t)(page * 8 + i + 1) * 2654435761u;
+      const int ind = (int)((h >> 20) % 3) * 2;
+      if (ind >= sw) continue;
+      const int requested = sw / 3 + (int)((h >> 24) % (uint32_t)(sw - sw / 3 + 1));
+      const int w = clampi(requested, 0, sw - ind);
+      const int len = i == lines - 1 ? clampi(row, 0, w) : w;
+      const int split = clampi(2 + (int)((h >> 12) % 4), 0, len);
+      if (split) c.fillRect(x + ind, y + i * 3, split, 2, cols[(h >> 16) % 4]);
+      if (len - split > 1)
+        c.fillRect(x + ind + split + 1, y + i * 3, len - split - 1, 2, cols[(h >> 8) % 4]);
+      if (i == lines - 1 && (now / 400) & 1 && ind + len + 3 <= sw)
+        c.fillRect(x + ind + len + 1, y + i * 3, 2, 2, T.txt);
     }
+    c.noClip();  // не обрезать питомца и остальные элементы комнаты
   }
 }
 

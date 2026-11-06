@@ -187,5 +187,17 @@ int main(int argc, char** argv) {
   shot(g, dir, "41-status-awards-unlocked");
   g.page = 10;
   shot(g, dir, "42-status-awards-final-page");
+  // Разные фазы бегущего текста на экранах мебели — проверка рамки.
+  prepare(g, JUNIOR, 12);
+  g.now = 3200; g.deskUntil = 0;
+  shot(g, dir, "43-monitor-junior-idle");
+  g.now = 5400; g.deskUntil = g.now + 25000;
+  shot(g, dir, "44-monitor-junior-typing");
+  prepare(g, HACKER, 12);
+  g.now = 9200; g.deskUntil = g.now + 25000;
+  shot(g, dir, "45-monitor-hacker-typing");
+  prepare(g, FREELANCER, 12);
+  g.now = 16100; g.deskUntil = 0;
+  shot(g, dir, "46-monitor-freelancer-idle");
   return 0;
 }

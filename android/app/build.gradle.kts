@@ -15,8 +15,8 @@ android {
         applicationId = "ru.bitpet.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "0.25-status-awards"
+        versionCode = 26
+        versionName = "0.26-monitor-clip"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         externalNativeBuild { cmake { cppFlags += "-std=c++17" } }
     }

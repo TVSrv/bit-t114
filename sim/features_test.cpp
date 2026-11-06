@@ -775,6 +775,60 @@ int main() {
     check(roomOk, "все 11 комнат: высота 135, стена и пол без пустых полос");
     check(sleepOk, "все формы и сон: персонаж на полу y120, меню не заслоняет комнату");
 
+    // Регрессия мониторов: при печати и движении курсора ни один
+    // анимированный пиксель не может выйти за стекло монитора на стену.
+    bool confined = true, animated = false, clipRestored = true;
+    const uint32_t phases[] = {250u, 900u, 2100u, 4200u, 17000u, 43000u};
+    for (int form = BABY; form <= AI; ++form) {
+      const rooms::Room& panel = rooms::ROOM[form];
+      if (!panel.screens) continue;
+      Game monitor; memset(&monitor.s, 0, sizeof monitor.s);
+      monitor.init(3000 + form); monitor.demo(0);
+      monitor.s.form = (uint8_t)form;
+      monitor.s.asleep = 0; monitor.s.lightOff = 0;
+      monitor.s.epoch = daysFrom2000(2026, 11, 6) * 86400u + 12 * 3600u;
+      monitor.s.tz = 0;
+      for (int theme = 0; theme < 5; ++theme) {
+        monitor.s.theme = theme == 0 ? 0 : (uint8_t)(IT_TH_DRACULA + theme - 1);
+        for (int typing = 0; typing <= 1; ++typing) {
+          monitor.now = phases[0];
+          monitor.deskUntil = typing ? 60000u : 0u;
+          cv.noClip();
+          cv.clear(pal::bg);
+          monitor.drawBackground(cv, false);
+          std::vector<gfx::Color> original(fb, fb + gfx::W * gfx::H);
+          for (uint32_t instant : phases) {
+            monitor.now = instant;
+            cv.noClip();
+            cv.clear(pal::bg);
+            monitor.drawBackground(cv, false);
+            // При нормальной отрисовке все изменения между кадрами
+            // должны происходить только внутри действующих мониторов.
+            for (int y = 0; y < gfx::H; ++y) {
+              for (int x = 0; x < gfx::W; ++x) {
+                if (fb[y * gfx::W + x] == original[y * gfx::W + x]) continue;
+                bool inside = false;
+                for (int m = 0; m < panel.screens; ++m) {
+                  const uint8_t* sc = panel.screen[m];
+                  const int x0 = sc[0] + 2, y0 = sc[1] + sceneTop + shiftY + 2;
+                  const int x1 = sc[2] - 2, y1 = sc[3] + sceneTop + shiftY - 1;
+                  if (x >= x0 && x < x1 && y >= y0 && y < y1) { inside = true; break; }
+                }
+                if (!inside) confined = false;
+                else animated = true;
+              }
+            }
+          }
+          // Canvas::clip не должен оставаться активным после мониторов.
+          cv.pixel(0, 0, pal::red);
+          if (fb[0] != pal::red) clipRestored = false;
+        }
+      }
+    }
+    check(confined, "анимация экранов: 9 форм, 5 тем и 2 режима не рисуют строки вне рамок");
+    check(animated, "строки мониторов продолжают анимироваться после ограничения");
+    check(clipRestored, "после рисования мониторов Canvas возвращает полную область отрисовки");
+
     Game weather; memset(&weather.s, 0, sizeof weather.s); weather.init(1512);
     weather.demo(0); weather.s.form = JUNIOR; weather.s.tz = 0;
     weather.s.epoch = (weather.s.epoch / 86400u) * 86400u + 12 * 3600u;
