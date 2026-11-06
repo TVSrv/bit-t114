@@ -860,7 +860,14 @@ int main() {
     check(info.size() == 79 && info[54] == 1 && info[50] == 0,
           "в BLE передаётся переключение на часы и погоду");
     phone.mirror(info.data(), (int)info.size());
-    check(phone.infoScreen && !phone.menuOpen, "зеркало телефона показывает информер");
+    check(phone.infoScreen && !phone.menuOpen, "режим зеркала для других клиентов по умолчанию сохраняет информер");
+    phone.mirror(info.data(), (int)info.size(), false);
+    check(!phone.infoScreen && !phone.menuOpen && board.infoScreen,
+          "Android показывает питомца, когда на плате открыт экран часов и погоды");
+    auto petAlways = sync();
+    phone.mirror(petAlways.data(), (int)petAlways.size(), false);
+    check(!phone.infoScreen && phone.scene == S_HOME,
+          "следующая BLE-телеметрия не возвращает погоду в Android");
     board.button(B_SHORT);
     auto home = sync();
     phone.mirror(home.data(), (int)home.size());

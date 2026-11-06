@@ -206,7 +206,7 @@ class Game {
   // Bluetooth: текстовые команды с телефона и события для отправки
   int command(const char* line, char* out, int outSize);
   // приложение: повторить на телефоне экран платы по строке «data» (поля без «D|3|»)
-  void mirror(const int32_t* v, int n);
+  void mirror(const int32_t* v, int n, bool showInfoScreen = true);  // Android: false — всегда питомец, даже когда на T114 часы
   uint16_t eventSeq = 0;             // растёт при каждом новом событии
   char eventText[72] = {0};
   void event(const char* text);

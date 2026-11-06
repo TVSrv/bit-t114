@@ -285,7 +285,7 @@ int Game::command(const char* line, char* out, int n) {
   return sfmt(out, n, "Готово");
 }
 
-void Game::mirror(const int32_t* v, int n) {
+void Game::mirror(const int32_t* v, int n, bool showInfoScreen) {
   if (n < 36) return;
   speed = 0;  // своя логика не идёт — только анимация по данным с платы
   Form prevForm = (Form)s.form;
@@ -353,7 +353,7 @@ void Game::mirror(const int32_t* v, int n) {
     cursor = deviceOpen ? v[51] : -1;
     menuTransitionAt = now - animationAge;
     cursorMs = now - idleAge;
-    infoScreen = n >= 55 && v[54] == 1 && !deviceOpen;
+    infoScreen = showInfoScreen && n >= 55 && v[54] == 1 && !deviceOpen;
   } else {
     // Старые платы не передают курсор; не имитируем фиктивные нажатия.
     menuOpen = false;

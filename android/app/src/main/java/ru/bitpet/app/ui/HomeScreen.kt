@@ -228,7 +228,7 @@ private fun PillButton(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
-// --- окно с экраном платы: рисует ядро игры, то же, что в прошивке ---
+// --- окно питомца: часы и погода показываются только на дисплее T114 ---
 
 @Composable
 private fun DeviceWindow(link: BitLink.State) {
@@ -263,7 +263,7 @@ private fun DeviceWindow(link: BitLink.State) {
             val ready = link == BitLink.State.READY
             Box(Modifier.size(7.dp).clip(CircleShape).background(if (ready) Pal.green else Pal.muted))
             Spacer(Modifier.width(7.dp))
-            Text("Экран платы", color = Pal.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            Text("Питомец", color = Pal.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f))
             Text("T114", color = Pal.muted, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
         }
