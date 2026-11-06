@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   screenshots:
@@ -48,3 +48,15 @@ jobs:
           name: Bit-0.42-pet-and-weather-screenshots
           path: docs/screenshots/*.png
           if-no-files-found: error
+      - name: Publish two new verified screenshots to the experimental branch
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots/09-clock-weather-after-wake.png docs/screenshots/10-pet-after-second-press.png
+          if git diff --cached --quiet; then
+            echo "Pixel screenshots unchanged"
+          else
+            git commit -m "docs(ui): add authentic screenshots of wake dashboard and pet"
+            git push origin HEAD:experiment/pet-clock-weather-screen
+          fi
