@@ -39,6 +39,8 @@ static void prepare(Game& g, Form form, int hour, bool sleeping = false) {
   g.s.asleep = sleeping ? 1 : 0;
   g.s.lightOff = sleeping ? 1 : 0;
   g.s.hat = 0;
+  g.s.achievements = 0;
+  g.s.ageMin = 0;  // чистое состояние: праздники и награды не наследуются от предыдущего снимка
   g.setBattery(82, false);
   g.clockSure = true;
   g.s.hunger = 84;

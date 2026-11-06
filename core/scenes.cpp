@@ -895,8 +895,8 @@ void Game::drawHome(Canvas& c) {
       drawTree(c, deco, FLOOR + 2, now);
       // Снежинки позади питомца, чтобы не закрывать лицо и шапки.
       for (int i = 0; i < 18; ++i) {
-        int x = (i * 53 + (int)(now / 52) + i * i * 7) % W;
-        int y = TOP + 2 + (i * 19 + (int)(now / 92)) % (FLOOR - TOP - 4);
+        int x = (i * 53 + (int)((now / 52) % W) + i * i * 7) % W;
+        int y = TOP + 2 + (i * 19 + (int)((now / 92) % (FLOOR - TOP - 4))) % (FLOOR - TOP - 4);
         c.circle((float)x, (float)y, 0.8f, pal::white, 135);
       }
       break;
