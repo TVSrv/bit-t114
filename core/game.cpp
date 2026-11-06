@@ -267,7 +267,9 @@ void Game::minute() {
   bool night = sleepTime();
   if (night && s.asleep != 1) {
     s.asleep = 1;
-    if (s.lightOff && s.nightLight) lightAnim = now;
+    // Автоматический ночник включается по началу сна, даже если пользователь
+    // забыл вручную погасить подсветку комнаты.
+    if (s.nightLight) lightAnim = now;
     say("Пора спать… выключи свет", pal::purple, 3000);
   } else if (!night && s.asleep == 1) {
     s.asleep = 0;
@@ -418,7 +420,11 @@ void Game::setCall(uint8_t kind) {
 }
 
 void Game::resolveCall(uint8_t kind) {
-  if (s.callKind == kind) { s.callKind = C_NONE; s.callMin = 0; s.fakeCall = 0; }
+  if (s.callKind == kind) {
+    s.callKind = C_NONE; s.callMin = 0; s.fakeCall = 0;
+    // Tell Android to dismiss stale notification instead of waiting an hour.
+    event("Бит: просьба выполнена");
+  }
 }
 
 void Game::updateCalls() {
@@ -439,6 +445,7 @@ void Game::updateCalls() {
     s.fakeCall = 0;
     static const char* why[] = {"", "хочет есть", "скучает", "пора выключить свет", "болеет", "баги на полу", "", ""};
     if (need) { sfmt(eventText, sizeof eventText, "Бит зовёт: %s", why[need]); event(eventText); }
+    else event("Бит: просьба выполнена");
     return;
   }
   if (need != C_NONE) {
@@ -582,6 +589,9 @@ void Game::event(const char* text) {
     eventText[i] = 0;
   }
   eventSeq++;
+  EventRecord& rec = events[eventSeq % EVENT_HISTORY];
+  rec.seq = eventSeq;
+  memcpy(rec.text, eventText, sizeof rec.text);
 }
 
 void Game::say(const char* t, Color c, uint32_t ms) {
@@ -915,7 +925,7 @@ void Game::listChoose() {
     case 5:
       s.nightLight ^= 1;
       // Включение ночника в уже тёмной спальне должно сразу давать свет.
-      if (s.nightLight && s.lightOff && s.asleep) lightAnim = now;
+      if (s.nightLight && (s.lightOff || s.asleep)) lightAnim = now;
       dirty = true;
       break;
     case 6: s.flip ^= 1; dirty = true; break;
@@ -1142,9 +1152,11 @@ static uint32_t scaleRgb(uint32_t c, int k) {  // k 0..256
 }
 
 uint32_t Game::nightLightColor() const {
-  // Ночник — отдельная функция, не зависит от переключателя эффектов «Светодиоды».
-  // Он светит 10 минут после выключения света и плавно гаснет ещё одну минуту.
-  if (!s.nightLight || !s.lightOff || !s.asleep) return 0;
+  // Ночник — отдельная функция, не зависит от переключателя эффектов.
+  // Включается либо при засыпании по расписанию, либо при ручном гашении
+  // света, даже если питомец пока не заснул (энергия 100%).
+  // Светит 10 минут, затем плавно гаснет ещё одну минуту.
+  if (!s.nightLight || (!s.lightOff && !s.asleep)) return 0;
   const uint32_t t = now - lightAnim;
   static constexpr uint32_t WARM = 0x482000; // спокойный янтарный свет двух RGB LED
   if (t < 600000u) return WARM;
@@ -1153,25 +1165,30 @@ uint32_t Game::nightLightColor() const {
 }
 
 uint32_t Game::ledColorScreenOff() const {
-  // Alarm remains visible even during wake-up latency or if LED effects are off.
+  // Alarm stays visible while the LCD wakes, even if LED effects are off.
   if (scene == S_ALARM) return ledColor();
   uint32_t night = nightLightColor();
   if (night) return night; // никакие просьбы не прерывают свет ночника
   if (!s.leds) return 0;
-  // При выключенном экране оставляем только короткую вспышку просьбы раз в 4 сек.
-  if (attention() && (now % 4000u) < 120u) return callColor();
+  // При погашенном экране цикл может спать до 250 мс: прежние 120 мс
+  // вспышки раз в 4 с часто полностью пропускались. Делаем 700 мс.
+  if (attention() && (now % 4000u) < 700u) return callColor();
   return 0;
 }
 
 uint32_t Game::ledColor() const {
-  if (scene == S_ALARM && s.leds) {  // будильник заметнее ночника
+  // Игровые сигналы и будильник — функциональные, не декоративные LED.
+  // Поэтому они работают, даже если обычные уведомления LED выключены.
+  // Иначе в «Реакции» не появлялся зелёный сигнал.
+  if (scene == S_ALARM) {
     static const uint32_t rb[] = {0xFF0000, 0xFF8000, 0xFFFF00, 0x00FF00, 0x00A0FF, 0x8000FF};
     return rb[(now / 150) % 6];
   }
+  if (scene == S_GAME_REACT && gPhase == 0)
+    return now >= rGoAt ? 0x00FF20 : 0x400000;
   uint32_t night = nightLightColor();
   if (night) return night;
   if (!s.leds) return 0;
-  if (scene == S_GAME_REACT && gPhase == 0) return now >= rGoAt ? 0x00FF20 : 0x400000;
   if (now < ledFlashUntil) return ((now / 200) & 1) ? ledFlashColor : 0;
   if (attention() && !(s.asleep && s.callKind != C_LIGHT)) {
     uint32_t c = callColor();
