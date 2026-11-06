@@ -1,3 +1,3 @@
 // Версия прошивки: показывается в приложении (команда «версия»). Менять при каждом выпуске.
 #pragma once
-#define BIT_VERSION "0.43.3-grounded-walk"
+#define BIT_VERSION "0.43.4-status-awards"

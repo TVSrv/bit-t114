@@ -287,37 +287,9 @@ void drawPet(Canvas& c, Form f, const Pose& p) {
     }
   }
 
-  // Награды не должны скрывать глаза и рот: у младших форм рот
-  // расположен непосредственно над ногами. Поэтому шарф обнимает бока,
-  // а значки крепятся к его краям, не закрывая центральную часть лица.
-  // Во сне награды не проступают сквозь одеяло.
-  if (f != GHOST && !p.sleeping) {
-    float waist = sp.leg[0][2] ? b.Y(sp.leg[0][1] + 1.5f) : by - bh * 0.1f;
-    float side = bw * 0.43f;
-    if (p.acc & ACC_SCARF) {
-      const Color red = hex(0xd9455a), trim = hex(0xffb9bd);
-      c.roundRect(cx - side - 2.2f * s, waist - 2.1f * s, 4.4f * s, 4.2f * s, 1.4f * s, red, A);
-      c.roundRect(cx + side - 2.2f * s, waist - 2.1f * s, 4.4f * s, 4.2f * s, 1.4f * s, red, A);
-      c.roundRect(cx - side - 1.2f * s, waist + 0.4f * s, 2.3f * s, 5.0f * s, 1.0f * s, hex(0xb8364a), A);
-      c.pixel((int)(cx - side), (int)(waist - 0.8f * s), trim, A);
-      c.pixel((int)(cx + side), (int)(waist - 0.8f * s), trim, A);
-    }
-    if (p.acc & ACC_MEDAL) {
-      float mx = cx - side, my = waist + 1.1f * s;
-      c.circle(mx, my, 2.1f * s, hex(0xb8860b), A);
-      c.circle(mx, my, 1.4f * s, hex(0xf5c542), A);
-    }
-    if (p.acc & ACC_STAR)
-      drawStar(c, cx + side, waist + 1.1f * s, 0.95f * s, hex(0xf5c542), A);
-  }
   float top = b.Y(sp.head) + 1;
   if (hatOn) {
     drawHat(c, p.hat, cx, b.Y(sp.hatY) - 2.5f * sy, sp.hatW * sx * 0.95f, s, p.dir, p.t);
-  } else if ((p.acc & ACC_CROWN) && !p.sleeping && f != GHOST) {
-    float kx = cx + bw * 0.22f, ky = top + 1;
-    c.roundRect(kx - 6 * s, ky - 2 * s, 12 * s, 4 * s, 1, hex(0xf5c542), A);
-    for (int i = -1; i <= 1; i++) c.triangle(kx + i * 4 * s - 2.4f * s, ky - 1.5f * s, kx + i * 4 * s + 2.4f * s, ky - 1.5f * s, kx + i * 4 * s, ky - 7 * s, hex(0xf5c542), A);
-    c.circle(kx, ky - 0.2f * s, 1.1f * s, pal::red, A);
   }
   if (f == BABY && (p.t / 500) & 1) {  // лампочка на антенне мигает
     float ax = b.X(sp.w * 0.5f), ay = b.Y(4);

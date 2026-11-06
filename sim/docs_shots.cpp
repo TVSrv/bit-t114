@@ -130,12 +130,13 @@ int main(int argc, char** argv) {
   }
   static const int bits[] = {ACH_KM1, ACH_WEEK, ACH_GAMER, ACH_COLLECTOR};
   static const char* badgeNames[] = {
-    "18-achievement-scarf", "19-achievement-medal",
-    "20-achievement-star", "21-achievement-crown"
+    "18-status-kilometer", "19-status-week",
+    "20-status-gamer", "21-status-collector"
   };
   for (int i = 0; i < 4; ++i) {
     prepare(g, (Form)(BABY + i), 12);
     g.s.achievements = (uint32_t)1 << bits[i];
+    g.scene = S_STATUS; g.page = (uint8_t)(5 + bits[i] / 3);
     shot(g, dir, badgeNames[i]);
   }
   static const char* holidays[] = {
@@ -177,5 +178,14 @@ int main(int argc, char** argv) {
     g.lastPetMs = g.now - 30;
     shot(g, dir, walkingNames[i]);
   }
+  // Витрина наград без достижений, с полным набором и на последней странице.
+  prepare(g, JUNIOR, 12);
+  g.scene = S_STATUS; g.page = 5;
+  g.s.achievements = 0;
+  shot(g, dir, "40-status-awards-locked");
+  g.s.achievements = (1u << ACH_COUNT) - 1u;
+  shot(g, dir, "41-status-awards-unlocked");
+  g.page = 10;
+  shot(g, dir, "42-status-awards-final-page");
   return 0;
 }

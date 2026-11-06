@@ -34,8 +34,8 @@ const char* achName(uint8_t a) {
   return a < ACH_COUNT ? n[a] : "?";
 }
 const char* achHint(uint8_t a) {
-  static const char* n[] = {"1 км прогулок · шарф", "10 км прогулок", "7 дней · медаль", "20 побед · звезда",
-                            "вырастить взрослого", "дожить до старости", "все 9 форм · корона", "вырастить Нейросеть",
+  static const char* n[] = {"1 км прогулок", "10 км прогулок", "7 дней без ошибок", "20 побед в играх",
+                            "вырастить взрослого", "дожить до старости", "все 9 форм питомца", "вырастить Нейросеть",
                             "убрать 50 багов", "5 раз по будильнику", "30 раз любимая еда", "25 новых мест",
                             "10 GPS-квестов", "быстрее 0,25 с", "встреча по LoRa", "5 разных друзей",
                             "10 000 шагов за день", "покупка в магазине"};
@@ -599,16 +599,39 @@ void Game::drawAlarm(Canvas& c) {
 // --- статус: достижения и коллекция ---
 
 void Game::drawAchievements(Canvas& c, int first, int count) {
-  // по 3 на страницу: название крупно, описание обычным светлым шрифтом
-  int x = 86, y = TOP + 2;
-  for (int i = first; i < first + count && i < ACH_COUNT; i++) {
+  // Шесть страниц по три достижения. Кубки — особо ценные награды,
+  // остальные — медали. Не полученные награды показаны приглушёнными.
+  const int x = 86;
+  int y = TOP + 2;
+  for (int i = first; i < first + count && i < ACH_COUNT; ++i) {
     bool got = has(i);
-    if (got) drawStar(c, (float)x + 5, (float)y + 9, 1.6f, hex(0xf5c542));
-    else c.ring((float)x + 5, (float)y + 9, 4, 1.3f, pal::fg);
+    bool trophy = i == ACH_KM10 || i == ACH_OLD || i == ACH_COLLECTOR ||
+                  i == ACH_AI || i == ACH_SOCIAL || i == ACH_STEPS;
+    Color metal = got ? (trophy ? hex(0xffd56a) : hex(0xd8e4ef)) : pal::line;
+    Color accent = got ? hex(0xe7ac40) : pal::dim;
+    float cx = x + 9, cy = y + 10;
+    // Локальная подложка: иконки одинаково читаются на всех шести страницах.
+    c.roundRect(x, y + 1, 19, 23, 5, got ? hex(0x34344a) : pal::gutter);
+    if (trophy) {
+      c.circle(cx - 5.5f, cy - 3, 3.6f, accent);
+      c.circle(cx + 5.5f, cy - 3, 3.6f, accent);
+      c.roundRect(cx - 5, cy - 8, 10, 10, 2.5f, metal);
+      c.roundRect(cx - 1.5f, cy + 1, 3, 5, 1, accent);
+      c.roundRect(cx - 6, cy + 6, 12, 2.8f, 1.4f, metal);
+      if (got) drawStar(c, cx, cy - 4, 0.65f, hex(0x99601b));
+    } else {
+      c.triangle(cx - 5, cy - 8, cx - 0.7f, cy - 8, cx - 2, cy + 1, got ? pal::blue : pal::dim);
+      c.triangle(cx + 0.7f, cy - 8, cx + 5, cy - 8, cx + 2, cy + 1, got ? pal::red : pal::dim);
+      c.circle(cx, cy + 3, 5.5f, accent);
+      c.circle(cx, cy + 3, 4.1f, metal);
+      if (got) drawStar(c, cx, cy + 3, 0.6f, hex(0x8073a5));
+    }
     const char* nm = achName(i);
-    bool big = Canvas::width(font_ui, nm) <= W - x - 18;  // длинное название — чуть мельче
-    c.text(big ? font_ui : font_small, x + 14, y + (big ? 0 : 2), nm, got ? pal::white : pal::fg);
-    c.text(font_small, x + 14, y + 16, achHint(i), got ? hex(0xf5c542) : hex(0xc5cad6));
+    bool big = Canvas::width(font_ui, nm) <= W - x - 24;
+    c.text(big ? font_ui : font_small, x + 23, y + (big ? 0 : 2), nm, got ? pal::white : pal::fg);
+    c.text(font_small, x + 23, y + 16, achHint(i), got ? hex(0xf5c542) : pal::dim);
+    if (i + 1 < first + count && i + 1 < ACH_COUNT)
+      c.hline(x + 23, y + 30, W - x - 29, pal::line);
     y += 32;
   }
 }

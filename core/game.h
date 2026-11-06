@@ -128,7 +128,7 @@ enum Trait : uint8_t { T_GLUTTON, T_FIDGET, T_SLEEPY, T_SMART, T_CALM, TRAIT_COU
 const char* traitName(uint8_t t);
 const char* traitHint(uint8_t t);
 
-// достижения; у некоторых есть аксессуар, который носят все питомцы
+// достижения: хранятся в Save v4 и показываются в меню «Статус»
 enum Ach : uint8_t {
   ACH_KM1, ACH_KM10, ACH_WEEK, ACH_GAMER, ACH_ADULT, ACH_OLD, ACH_COLLECTOR, ACH_AI, ACH_CLEAN, ACH_ALARM, ACH_GOURMET,
   ACH_EXPLORER, ACH_HUNTER, ACH_REFLEX, ACH_FRIEND, ACH_SOCIAL, ACH_STEPS, ACH_SHOPPER, ACH_COUNT

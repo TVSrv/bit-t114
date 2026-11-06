@@ -33,7 +33,7 @@ int main() {
   run(g, 1000);
   check(g.has(ACH_KM1), "1234 м прогулок дают «Первый километр»");
   Pose p = g.basePose();
-  check(p.acc & ACC_SCARF, "и питомец в шарфе");
+  check(g.has(ACH_KM1), "первый километр сохранён в разделе достижений, а не на лапах");
   // повреждённое сохранение не принимается
   SaveV1 bad = o; bad.hunger = 1;
   Game g2; memset(&g2.s, 0, sizeof g2.s);
@@ -927,58 +927,47 @@ int main() {
     check(!board.menuOpen && !phone.menuOpen, "автоскрытие работает на обоих экранах");
   }
 
-  // Сравниваем пиксели лица с базовым спрайтом для всех доступных
-  // купленных шапок/колпака и достижений на девяти формах.
+  // Награды больше не входят в позу питомца, но остаются в Save.
+  // Проверяем неизменность внешности всех девяти форм и разницу в витрине статуса.
   {
-    bool facesClear = true, sleepingClear = true;
-    const uint8_t hats[] = {1, 2, 3, 4, 5, 6, 20};
-    const uint8_t accessories[] = {
-      ACC_SCARF, ACC_MEDAL, ACC_STAR, ACC_CROWN,
-      (uint8_t)(ACC_SCARF | ACC_MEDAL | ACC_STAR | ACC_CROWN)
-    };
+    Game m; memset(&m.s, 0, sizeof m.s); m.init(7788); m.demo(0);
+    m.s.epoch = daysFrom2000(2026, 11, 6) * 86400u + 12 * 3600u;
+    bool petUnchanged = true;
     for (int form = BABY; form <= AI; ++form) {
-      const artdata::Sprite& sp = artdata::FORM[form];
-      Pose p; p.x = 120; p.y = 120; p.t = 6000;
-      p.eyes = E_HAPPY; p.mouth = M_OPEN; p.blush = true;
-      cv.clear(pal::bg);
-      drawPet(cv, (Form)form, p);
-      std::vector<gfx::Color> baseline(fb, fb + gfx::W * gfx::H);
-      auto sameFace = [&]() {
-        const uint8_t* areas[] = {sp.eye[0], sp.eye[1], sp.mouth};
-        for (int k = 0; k < 3; ++k) {
-          const uint8_t* box = areas[k];
-          if (!box[2]) continue;
-          int x0 = 120 - sp.w / 2 + box[0] - 1;
-          int x1 = 120 - sp.w / 2 + box[2] + 2;
-          int y0 = 120 - sp.h + box[1] - 1;
-          int y1 = 120 - sp.h + box[3] + 2;
-          for (int y = y0; y <= y1; ++y)
-            for (int x = x0; x <= x1; ++x)
-              if (x >= 0 && x < gfx::W && y >= 0 && y < gfx::H &&
-                  baseline[y * gfx::W + x] != fb[y * gfx::W + x]) return false;
-        }
-        return true;
-      };
-      for (uint8_t hat : hats) {
-        p.hat = hat; p.acc = 0;
-        cv.clear(pal::bg); drawPet(cv, (Form)form, p);
-        if (!sameFace()) facesClear = false;
-      }
-      p.hat = 0;
-      for (uint8_t a : accessories) {
-        p.acc = a;
-        cv.clear(pal::bg); drawPet(cv, (Form)form, p);
-        if (!sameFace()) facesClear = false;
-      }
-      p.sleeping = true; p.acc = 0;
-      cv.clear(pal::bg); drawPet(cv, (Form)form, p);
-      std::vector<gfx::Color> sleeping(fb, fb + gfx::W * gfx::H);
-      p.acc = ACC_SCARF | ACC_MEDAL | ACC_STAR | ACC_CROWN;
-      cv.clear(pal::bg); drawPet(cv, (Form)form, p);
-      if (memcmp(sleeping.data(), fb, sizeof fb) != 0) sleepingClear = false;
+      m.s.form = (uint8_t)form;
+      m.s.achievements = 0;
+      Pose before = m.basePose();
+      before.x = 120; before.y = 120; before.t = 6000;
+      cv.clear(pal::bg); drawPet(cv, (Form)form, before);
+      std::vector<gfx::Color> reference(fb, fb + gfx::W * gfx::H);
+      m.s.achievements = (1u << ACH_COUNT) - 1u;
+      Pose after = m.basePose();
+      after.x = 120; after.y = 120; after.t = 6000;
+      cv.clear(pal::bg); drawPet(cv, (Form)form, after);
+      if (memcmp(reference.data(), fb, sizeof fb) != 0) petUnchanged = false;
     }
-    check(facesClear, "9 форм × 7 шапок и 5 наборов наград: пиксели глаз и рта целы");
-    check(sleepingClear, "аксессуары спящего не проступают поверх одеяла");
+    check(petUnchanged, "все 9 форм: награды больше не отображаются на питомце");
+
+    m.s.form = JUNIOR;
+    m.scene = S_STATUS; m.page = 5;
+    m.s.achievements = 0;
+    m.render(cv);
+    std::vector<gfx::Color> none(fb, fb + gfx::W * gfx::H);
+    m.s.achievements = (1u << ACH_COUNT) - 1u;
+    m.render(cv);
+    bool changed = memcmp(none.data(), fb, sizeof fb) != 0;
+    check(changed, "открытые кубки и медали меняют витрину наград в «Статусе»");
+    bool allPages = true;
+    for (int i = 5; i <= 10; ++i) {
+      m.page = (uint8_t)i;
+      m.render(cv);
+      if (m.page != i) allPages = false;
+    }
+    check(allPages, "все 18 достижений доступны на шести страницах статуса");
+    Save snap = m.s; snap.crc = Game::crc32(&snap, offsetof(Save, crc));
+    Game restored; memset(&restored.s, 0, sizeof restored.s);
+    check(restored.load(snap) && restored.s.achievements == (1u << ACH_COUNT) - 1u,
+          "переоформление наград не изменило Save v4 и не сбросило достижения");
   }
   printf(fails ? "\nОшибок: %d\n" : "\nВсё верно\n", fails);
   return fails != 0;

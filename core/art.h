@@ -29,8 +29,6 @@ constexpr Color pink = gfx::hex(0xff8fab);
 constexpr Color accent = gfx::hex(0x456db9);
 }  // namespace pal
 
-enum Accessory : uint8_t { ACC_SCARF = 1, ACC_MEDAL = 2, ACC_STAR = 4, ACC_CROWN = 8 };
-
 enum Form : uint8_t { EGG, BABY, JUNIOR, MIDDLE, FREELANCER, SENIOR, ARCHITECT, HACKER, LEGACY, AI, GHOST, FORM_COUNT };
 
 enum Mouth : uint8_t { M_SMILE, M_OPEN, M_FLAT, M_SAD, M_O, M_CAT, M_CHEW, M_GRIN, M_WAVY };
@@ -59,7 +57,6 @@ struct Pose {
   bool cane = false;       // трость в глубокой старости
   bool sleeping = false;   // во сне головной убор лежит рядом
   uint8_t hat = 0;         // купленная шапка (Item 1–6) или 20 — новогодняя; заменяет шапку формы
-  uint8_t acc = 0;         // аксессуары: 1 шарф, 2 медаль, 4 звезда, 8 корона
   const artdata::Sprite* hold = nullptr;  // предмет в руке (кружка) — в кулаке со стороны взгляда
   float holdLift = 0;      // насколько поднят этот кулак (пьёт)
   float armR = 0;          // отдельно поднять кулак со стороны взгляда (машет), в пикселях спрайта

@@ -356,8 +356,6 @@ Pose Game::basePose() {
   p.gray = clampf((lf - 0.55f) / 0.3f, 0, 1);
   p.cane = lf > 0.8f;
   p.hat = itemIsHat(s.hat) ? s.hat : (holiday() == HD_NEWYEAR ? 20 : 0);
-  p.acc = (uint8_t)((has(ACH_KM1) ? ACC_SCARF : 0) | (has(ACH_WEEK) ? ACC_MEDAL : 0) |
-                    (has(ACH_GAMER) ? ACC_STAR : 0) | (has(ACH_COLLECTOR) ? ACC_CROWN : 0));
   // настроение
   if (s.sick) { p.eyes = E_DIZZY; p.mouth = M_WAVY; p.sweat = true; }
   else if (s.asleep) { p.eyes = E_CLOSED; p.mouth = M_O; p.squash = 0.93f + fsin(now * 0.0015f) * 0.04f; }
@@ -1194,14 +1192,30 @@ void Game::drawStatus(Canvas& c) {
   drawTopBar(c, false);
   c.roundRect(5, TOP + 5, 72, H - TOP - 10, 8, pal::line);
   c.roundRectGrad(6, TOP + 6, 70, H - TOP - 12, 7, pal::editor, pal::gutter);
-  c.text(font_mono, 41, TOP + 8, "ПИТОМЕЦ", pal::fg, 255, CENTER);
+  bool awardsPage = page >= 5 && page <= 10;
+  c.text(font_mono, 41, TOP + 8, awardsPage ? "НАГРАДЫ" : "ПИТОМЕЦ", pal::fg, 255, CENTER);
   c.hline(13, TOP + 89, 56, pal::line);
   char pos[8];
   sfmt(pos, sizeof pos, "%d/12", page + 1);
   c.text(font_mono, 41, TOP + 91, pos, pal::cyan, 255, CENTER);
-  Pose p = basePose();
-  p.x = 41; p.y = TOP + 84; p.scale = 0.84f; p.lookX = 0.6f;
-  drawPet(c, (Form)s.form, p);
+  if (awardsPage) {
+    // Витрина наград в меню «Статус», вместо аксессуаров на лапах питомца.
+    const Color gold = hex(0xf5c542), shadeGold = hex(0x976b29);
+    c.ellipse(41, TOP + 40, 12, 9, gold);
+    c.circle(28, TOP + 38, 4, shadeGold);
+    c.circle(54, TOP + 38, 4, shadeGold);
+    c.roundRect(35, TOP + 45, 12, 5, 2, gold);
+    c.roundRect(39, TOP + 49, 4, 7, 1, shadeGold);
+    c.roundRect(31, TOP + 55, 20, 4, 2, gold);
+    char total[16];
+    sfmt(total, sizeof total, "%u/%u", (unsigned)__builtin_popcount(s.achievements & ((1u << ACH_COUNT) - 1u)),
+         (unsigned)ACH_COUNT);
+    c.text(font_ui, 41, TOP + 69, total, pal::yellow, 255, CENTER);
+  } else {
+    Pose p = basePose();
+    p.x = 41; p.y = TOP + 84; p.scale = 0.84f; p.lookX = 0.6f;
+    drawPet(c, (Form)s.form, p);
+  }
   int x = 86, w = 148;
   char b[64];
   switch (page) {
