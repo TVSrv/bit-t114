@@ -572,6 +572,101 @@ int main() {
     for (int i = 0; i < 100; ++i) refusal = calm.refuses() || refusal;
     check(!refusal, "В спокойном режиме Бит не отказывается от еды и игр");
   }
+  // Координаты багов: каждый новый баг получает случайное место на полу,
+  // позиции разнесены, сохранены в Save v4 и восстанавливаются после ребута.
+  {
+    Game bugs; memset(&bugs.s, 0, sizeof bugs.s);
+    bugs.init(92315); bugs.demo(0);
+    bugs.s.form = MIDDLE;
+    bugs.s.epoch = daysFrom2000(2026, 11, 6) * 86400u + 12 * 3600u;
+    bugs.s.nextBugMin = 1;
+    bool boundsOk = true, spreadOk = true;
+    for (int i = 0; i < 4; ++i) {
+      bugs.s.nextBugMin = 1;
+      bugs.minute();
+      if (bugs.s.bugs != i + 1) spreadOk = false;
+      int x = bugs.bugPosition(i);
+      if (x < 26 || x > 213) boundsOk = false;
+      for (int j = 0; j < i; ++j) {
+        int dx = x - bugs.bugPosition(j);
+        if (dx < 0) dx = -dx;
+        if (dx < 25) spreadOk = false;
+      }
+    }
+    check(boundsOk, "все баги находятся внутри игрового экрана, не вылезают за край");
+    check(spreadOk, "четыре бага появляются в разнесённых случайных местах");
+
+    const uint8_t previous[4] = {
+      bugs.s.reserved4[2], bugs.s.reserved4[3],
+      bugs.s.reserved4[4], bugs.s.reserved4[5]
+    };
+    Save snap = bugs.s;
+    snap.crc = Game::crc32(&snap, offsetof(Save, crc));
+    Game resumed; memset(&resumed.s, 0, sizeof resumed.s);
+    bool restored = resumed.load(snap);
+    for (int i = 0; i < 4; ++i)
+      restored = restored && resumed.bugPosition(i) == previous[i];
+    check(restored, "позиции сохраняются в совместимом Save v4 и остаются после перезагрузки");
+
+    // Старые сохранения ещё содержат количество, но не координаты.
+    for (int i = 0; i < 4; ++i) snap.reserved4[2 + i] = 0;
+    snap.crc = Game::crc32(&snap, offsetof(Save, crc));
+    Game migrated; memset(&migrated.s, 0, sizeof migrated.s);
+    bool migratedOk = migrated.load(snap) && migrated.s.bugs == 4;
+    for (int i = 0; i < 4; ++i) {
+      int x = migrated.bugPosition(i);
+      migratedOk = migratedOk && x >= 26 && x <= 213;
+      for (int j = 0; j < i; ++j) {
+        int dx = x - migrated.bugPosition(j);
+        if (dx < 0) dx = -dx;
+        migratedOk = migratedOk && dx >= 25;
+      }
+    }
+    check(migratedOk, "старые Save v4 с багами автоматически получают корректные позиции");
+
+    // Повторная уборка не должна возвращать баг в точно ту же точку.
+    bugs.s.bugs = 0;
+    bugs.s.nextBugMin = 1;
+    bugs.minute();
+    int shift = bugs.bugPosition(0) - previous[0];
+    if (shift < 0) shift = -shift;
+    check(bugs.s.bugs == 1 && shift >= 25,
+          "после уборки первый баг появляется в новом месте, а не в прежней точке");
+
+    // Изменение координаты должно менять реальную графику, а не только Save.
+    bugs.s.bugs = 1;
+    bugs.s.reserved4[2] = 40;
+    bugs.actionKind = A_NONE;
+    bugs.scene = S_HOME;
+    bugs.menuOpen = false;
+    bugs.infoScreen = false;
+    bugs.render(cv);
+    std::vector<gfx::Color> atLeft(fb, fb + gfx::W * gfx::H);
+    bugs.s.reserved4[2] = 200;
+    bugs.render(cv);
+    check(memcmp(atLeft.data(), fb, sizeof fb) != 0,
+          "отрисовка использует новую координату бага вместо старых фиксированных точек");
+
+    int uniqueX[188] = {};
+    int uniqueCount = 0, leftHalf = 0, rightHalf = 0;
+    for (int seed = 1; seed <= 64; ++seed) {
+      Game trial; memset(&trial.s, 0, sizeof trial.s);
+      trial.init((uint32_t)seed * 733u);
+      trial.demo(0); trial.s.form = MIDDLE;
+      trial.s.epoch = daysFrom2000(2026, 11, 6) * 86400u + 12 * 3600u;
+      trial.s.nextBugMin = 1;
+      trial.minute();
+      int x = trial.bugPosition(0);
+      if (x >= 26 && x <= 213) {
+        if (!uniqueX[x - 26]++) uniqueCount++;
+        if (x < 120) leftHalf++;
+        else rightHalf++;
+      }
+    }
+    check(uniqueCount >= 12 && leftHalf >= 8 && rightHalf >= 8,
+          "64 появления используют разные X по обеим сторонам комнаты");
+  }
+
   // 0.37: долгий режим эволюции. Проверяем обе стороны каждой границы.
   {
     check(EVO_EGG_SECONDS == 600u && EVO_BABY_MINUTES == 720u &&

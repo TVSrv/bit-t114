@@ -229,5 +229,18 @@ int main(int argc, char** argv) {
   g.s.hunger = 99; g.s.happy = 0; g.s.energy = 100; g.s.discipline = 99;
   g.setBattery(83, false);
   shot(g, dir, "54-hud-mixed-99-0-battery");
+
+  // Actual renderer: bugs at multiple positions; previous builds used
+  // {210,186,34,58} no matter when/where a bug spawned.
+  prepare(g, SENIOR, 12);
+  g.s.bugs = 4;
+  g.s.reserved4[2] = 42; g.s.reserved4[3] = 93;
+  g.s.reserved4[4] = 158; g.s.reserved4[5] = 205;
+  shot(g, dir, "55-bugs-four-spread-floor");
+  g.s.bugs = 1;
+  g.s.reserved4[2] = 38;
+  shot(g, dir, "56-bug-left-spawn");
+  g.s.reserved4[2] = 196;
+  shot(g, dir, "57-bug-right-spawn");
   return 0;
 }

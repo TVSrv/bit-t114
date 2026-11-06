@@ -107,6 +107,9 @@ bool Game::load(const Save& saved) {
   lightAnim = now;
   clockSure = false;  // плата была выключена — часы отстают на это время
   if (s.reserved4[0] > 1) s.reserved4[0] = 0;
+  // Старые Save v4 имели только число багов и не содержали их координат.
+  // Не сбрасываем питомца: назначаем позиции один раз и сохраняем в резерв.
+  ensureBugPositions();
   nextHobby = now + 40u * 60000u; hobbyKind = 0;
   if (s.clockSource) say("Был перезапуск — проверь часы", pal::yellow, 8000);
   checkAchievements();
@@ -193,6 +196,63 @@ void Game::second() {
   }
 }
 
+// Позиции багов на полу: X=26..213, анимация смещает их ещё на ±3 px.
+int Game::bugPosition(int index) const {
+  if (index < 0 || index >= 4) return 120;
+  const int value = s.reserved4[2 + index];
+  return value >= 26 && value <= 213 ? value : 120;
+}
+
+// Новый баг не должен совпадать с уже видимыми. Ранее использованная позиция
+// того же слота тоже учитывается, чтобы после уборки баг не возникал снова там же.
+uint8_t Game::chooseBugX(int index) {
+  const int previous = s.reserved4[2 + index];
+  const int start = 26, span = 188; // включительно до 213
+  int best = start, bestScore = -100000;
+  const int offset = rndInt(span);
+  // Проверяем все допустимые пиксели, но начинаем с непредсказуемого смещения:
+  // минимум расстояний обеспечивает разнесение даже при 3 существующих багах.
+  for (int step = 0; step < span; ++step) {
+    const int x = start + (offset + step) % span;
+    int gap = 1000;
+    for (int j = 0; j < index; ++j) {
+      const int other = s.reserved4[2 + j];
+      if (other >= start && other < start + span) {
+        const int dist = x > other ? x - other : other - x;
+        if (dist < gap) gap = dist;
+      }
+    }
+    int score = gap > 48 ? 48 : gap;
+    if (previous >= start && previous < start + span) {
+      const int dist = x > previous ? x - previous : previous - x;
+      if (dist < 30) score -= (30 - dist) * 3;
+    }
+    // У питомца есть собственное пространство: если возможно, не
+    // размещаем новый баг прямо под ним.
+    const int dpet = x > (int)petX ? x - (int)petX : (int)petX - x;
+    if (dpet < 25) score -= (25 - dpet) * 2;
+    if (score > bestScore) { bestScore = score; best = x; }
+    if (score >= 48) break;
+  }
+  return (uint8_t)best;
+}
+
+void Game::ensureBugPositions() {
+  const int count = s.bugs < 4 ? s.bugs : 4;
+  for (int i = 0; i < count; ++i) {
+    int x = s.reserved4[2 + i];
+    bool invalid = x < 26 || x > 213;
+    for (int j = 0; j < i; ++j) {
+      const int prev = s.reserved4[2 + j];
+      if (x > prev ? x - prev < 25 : prev - x < 25) invalid = true;
+    }
+    if (invalid) {
+      s.reserved4[2 + i] = chooseBugX(i);
+      dirty = true;
+    }
+  }
+}
+
 void Game::minute() {
   s.ageMin++;
   s.stageMin++;
@@ -263,8 +323,10 @@ void Game::minute() {
     if (s.nextBugMin > 0) s.nextBugMin--;
     if (s.nextBugMin == 0) {
       if (s.bugs < 4) {
-        bugX[s.bugs] = 0;
+        const int index = s.bugs;
+        s.reserved4[2 + index] = chooseBugX(index);
         s.bugs++;
+        dirty = true;
         sfmt(eventText, sizeof eventText, "Появился баг на полу (%u) — нужна уборка", s.bugs);
         event(eventText);
         if (scene == S_HOME && actionKind == A_NONE) startAction(A_POOP);

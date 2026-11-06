@@ -807,10 +807,10 @@ void Game::drawAction(Canvas& c) {
     case A_POOP: {
       float k = clampf(at / 500.0f, 0, 1);
       int i = s.bugs - 1;
-      static const float slots[] = {210, 186, 34, 58};
-      if (i >= 0) {
-        c.ring(slots[i], FLOOR - 4, 4 + k * 16, 2, pal::red, (int)(200 * (1 - k)));
-        if (at < 60) burst(slots[i], FLOOR - 6, 8, pal::red);
+      if (i >= 0 && i < 4) {
+        const float x = (float)bugPosition(i);
+        c.ring(x, FLOOR - 4, 4 + k * 16, 2, pal::red, (int)(200 * (1 - k)));
+        if (at < 60) burst(x, FLOOR - 6, 8, pal::red);
       }
       break;
     }
@@ -960,11 +960,13 @@ void Game::drawHome(Canvas& c) {
     return;
   }
   bool dark = s.lightOff;
+  ensureBugPositions(); // Включая восстановленные старые Save v4 и демонстрации.
   drawBackground(c, dark);
-  static const float slots[] = {210, 186, 34, 58};
   float cleanX = actionKind == A_CLEAN ? -20 + ease((now - actionStart) / 1500.0f) * 280 : -100;
   for (int i = 0; i < s.bugs && i < 4; i++) {  // баги ползают на полу
-    float x = slots[i] + fsin(now * 0.0013f + i * 2) * 5;
+    // У каждого бага собственная сохранённая случайная точка, небольшое
+    // шевеление не позволяет ему выйти за края или переползти на соседа.
+    float x = (float)bugPosition(i) + fsin(now * 0.0013f + i * 2) * 3;
     if (x < cleanX) continue;
     int dir = fcos(now * 0.0013f + i * 2) > 0 ? 1 : -1;
     drawBug(c, x, FLOOR + 2, now * 0.03f + i, dir, 1.1f);
