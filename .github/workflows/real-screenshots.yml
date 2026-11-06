@@ -1,8 +1,8 @@
-name: Verify real pixel screenshots (0.42 dashboard)
+name: Verify real pixel screenshots (0.43 rich weather)
 
 on:
   push:
-    branches: ['experiment/pet-clock-weather-screen']
+    branches: ['experiment/pet-clock-weather-screen', 'experiment/rich-weather-dashboard-0.43']
     paths:
       - sim/docs_shots.cpp
       - 'core/**'
@@ -45,7 +45,7 @@ jobs:
       - name: Upload visual proof
         uses: actions/upload-artifact@v4
         with:
-          name: Bit-0.42-pet-and-weather-screenshots
+          name: Bit-0.43-rich-weather-screenshots
           path: docs/screenshots/*.png
           if-no-files-found: error
       - name: Publish two new verified screenshots to the experimental branch
