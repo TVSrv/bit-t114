@@ -5,6 +5,7 @@ on:
     branches: ['experiment/pet-clock-weather-screen']
     paths:
       - sim/docs_shots.cpp
+      - 'core/**'
       - .github/workflows/real-screenshots.yml
   workflow_dispatch:
 
