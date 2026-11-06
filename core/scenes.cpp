@@ -913,58 +913,152 @@ void Game::drawHome(Canvas& c) {
 }
 
 // Полноэкранный информер: состояние погоды не сохраняется и приходит по BLE из Android.
-void Game::drawInfoScreen(Canvas& c) {
-  c.gradientV(0, 0, W, H, hex(0x101b32), hex(0x0b1020));
-  c.roundRect(5, 5, 230, 125, 10, hex(0x283752));
-  c.roundRect(6, 6, 228, 123, 9, hex(0x141f35));
-  c.text(font_ui, 15, 9, "ЧАСЫ И ПОГОДА", pal::cyan);
-  drawBattery(c, W - 21, 15, batPct, batCharging);
-  c.hline(15, 29, 210, hex(0x394863));
+// Компактные погодные пиктограммы: рисуются самим графическим ядром (240x135).
+static void weatherTiny(Canvas& c, int x, int y, uint8_t kind, bool night = false) {
+  const Color cloud = hex(0xc8dcf5), shade = hex(0x90b4dc);
+  if (kind == 1) {
+    if (night) {
+      c.circle(x + 6, y + 5, 4.2f, pal::yellow);
+      c.circle(x + 9, y + 3, 3.7f, hex(0x17243d));
+    } else {
+      c.circle(x + 6, y + 5, 4.5f, pal::yellow);
+      c.line(x + 6, y - 2, x + 6, y, 1, pal::yellow);
+      c.line(x - 1, y + 5, x + 1, y + 5, 1, pal::yellow);
+      c.line(x + 11, y + 5, x + 13, y + 5, 1, pal::yellow);
+    }
+    return;
+  }
+  if (kind == 5) {
+    c.circle(x + 6, y + 5, 5, hex(0x8296be));
+    c.line(x + 5, y + 6, x + 8, y + 3, 1.5f, pal::yellow);
+    c.line(x + 8, y + 3, x + 6, y + 8, 1.5f, pal::yellow);
+  } else if (kind == 6) {
+    c.fillRect(x, y + 2, 14, 2, shade);
+    c.fillRect(x + 2, y + 6, 12, 2, cloud);
+    c.fillRect(x, y + 10, 11, 1, shade);
+  } else {
+    c.circle(x + 5, y + 5, 3.5f, shade);
+    c.circle(x + 9, y + 3.5f, 4, cloud);
+    c.roundRect(x + 2, y + 5, 13, 5, 2, cloud);
+    if (kind == 3) {
+      c.line(x + 5, y + 11, x + 3, y + 13, 1, hex(0x70b9ff));
+      c.line(x + 10, y + 11, x + 8, y + 13, 1, hex(0x70b9ff));
+    }
+    if (kind == 4) {
+      c.circle(x + 5, y + 12, 1, pal::white);
+      c.circle(x + 11, y + 12, 1, pal::white);
+    }
+  }
+}
 
-  // Дата выводится из локального epoch, уже скорректированного прошивкой.
-  uint32_t day = s.epoch / 86400u;
+// Экран-информер использует только реально полученные показатели.
+// Внешний вид ориентирован на выбранный плотный pixel dashboard.
+void Game::drawInfoScreen(Canvas& c) {
+  const Color panel = hex(0x182840), panel2 = hex(0x20334f);
+  const Color line = hex(0x395373), muted = hex(0x9fb2ce);
+  c.gradientV(0, 0, W, H, hex(0x0d1a31), hex(0x101b31));
+
+  // Верхняя строка — узнаваемая шапка исходного проекта.
+  weatherTiny(c, 6, 2, hasWeather() ? weather : 2);
+  c.text(font_ui, 25, 1, "ЧАСЫ И ПОГОДА", pal::cyan);
+  c.circle(199, 10, 2.5f, !s.clockSource ? pal::dim : (clockSure ? pal::green : pal::yellow));
+  drawBattery(c, W - 19, 9, batPct, batCharging);
+  c.hline(5, 19, 230, line);
+
+  // Дата и цифровые часы, левая панель.
+  c.roundRect(6, 24, 105, 53, 6, line);
+  c.roundRect(7, 25, 103, 51, 5, panel);
+  uint32_t days = s.epoch / 86400u;
+  const int weekday = (int)((days + 5) % 7);  // 01.01.2000 была суббота
+  static const char* wd[] = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"};
   int year = 2000;
+  uint32_t day = days;
   while (year < 2100) {
-    int length = 365 + ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0 ? 1 : 0);
-    if (day < (uint32_t)length) break;
-    day -= length;
+    const int leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    const int n = 365 + leap;
+    if (day < (uint32_t)n) break;
+    day -= n;
     year++;
   }
-  static const uint8_t mdays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  static const int mdays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
   int month = 0;
   for (; month < 11; ++month) {
-    int length = mdays[month] + (month == 1 && ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0));
-    if (day < (uint32_t)length) break;
-    day -= length;
+    const int n = mdays[month] + (month == 1 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)));
+    if (day < (uint32_t)n) break;
+    day -= n;
   }
-  char b[28];
-  sfmt(b, sizeof b, "%02d.%02d.%04d", (int)day + 1, month + 1, year);
-  c.text(font_small, 16, 36, b, pal::dim);
-
-  c.roundRect(13, 53, 116, 51, 8, hex(0x23344d));
+  char b[32];
+  sfmt(b, sizeof b, "%02d.%02d %s", (int)day + 1, month + 1, wd[weekday]);
+  c.text(font_small, 12, 28, b, muted);
   sfmt(b, sizeof b, "%02d:%02d", hourNow(), minNow());
-  Color clockColor = !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow);
-  c.textFit(71, 60, b, clockColor, 109, CENTER);
-  // Короткая подсказка к точности времени внутри области даты, без третьей строки под часами.
-  c.circle(122, 43, 3, !s.clockSource ? pal::dim : (clockSure ? pal::green : pal::yellow));
+  c.roundRect(10, 43, 97, 30, 5, panel2);
+  c.textFit(58, 46, b, !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow), 94);
 
-  c.vline(138, 36, 77, hex(0x394863));
-  c.text(font_small, 153, 36, "ЗА ОКНОМ", pal::dim);
+  // Правая половина: текущая погода.
+  c.roundRect(115, 24, 119, 53, 6, line);
+  c.roundRect(116, 25, 117, 51, 5, panel);
   if (hasWeather()) {
-    const char* desc[] = {"", "Ясно", "Облачно", "Дождь", "Снег", "Гроза", "Туман"};
+    weatherTiny(c, 121, 32, weather, hourNow() >= 20 || hourNow() < 6);
     sfmt(b, sizeof b, "%s%d°", tempC > 0 ? "+" : "", (int)tempC);
-    c.text(font_big, 152, 53, b, pal::white);
-    int kind = weather <= 6 ? weather : 0;
-    c.text(font_small, 152, 85, desc[kind], pal::cyan);
-    c.text(font_small, 152, 96, "С телефона", pal::dim);
+    c.text(font_big, 145, 27, b, pal::white);
+    const char* desc[] = {"", "Ясно", "Облачно", "Дождь", "Снег", "Гроза", "Туман"};
+    c.text(font_small, 120, 53, desc[weather <= 6 ? weather : 0], pal::cyan);
+    c.hline(121, 64, 107, line);
+    if (hasWeatherExtra()) {
+      if (humidityPct <= 100) {
+        sfmt(b, sizeof b, "%d%%", (int)humidityPct);
+        c.text(font_small, 120, 66, b, muted);
+      }
+      if (windMs < 255) {
+        sfmt(b, sizeof b, "%d м/с", (int)windMs);
+        c.text(font_small, 172, 66, b, muted);
+      }
+    } else {
+      c.text(font_small, 121, 66, "С телефона", muted);
+    }
   } else {
-    c.text(font_ui, 152, 58, "Нет данных", pal::yellow);
-    c.text(font_small, 152, 82, "Подключите", pal::dim);
-    c.text(font_small, 152, 96, "Android BLE", pal::dim);
+    c.text(font_ui, 125, 37, "Нет погоды", pal::yellow);
+    c.text(font_small, 125, 55, "Нужен Android", muted);
   }
-  c.hline(15, 112, 210, hex(0x394863));
-  c.text(font_small, 16, 114, "Коротко: питомец", pal::fg);
-  c.text(font_small, 224, 114, "Долго: меню", pal::cyan, 255, RIGHT);
+
+  // Лента прогноза: шесть реальных точек каждые три часа.
+  c.roundRect(6, 81, 228, 34, 5, line);
+  c.roundRect(7, 82, 226, 32, 4, panel);
+  if (hasWeatherExtra() && forecastCount > 0) {
+    for (int i = 0; i < forecastCount && i < 6; ++i) {
+      const int x = 10 + i * 37;
+      if (i) c.vline(x - 3, 85, 25, line);
+      sfmt(b, sizeof b, "%02d:00", (int)forecast[i].hour);
+      c.text(font_small, x + 1, 83, b, muted);
+      weatherTiny(c, x + 9, 94, forecast[i].kind,
+                  forecast[i].hour >= 20 || forecast[i].hour < 6);
+      sfmt(b, sizeof b, "%s%d°", forecast[i].temp > 0 ? "+" : "", (int)forecast[i].temp);
+      c.text(font_small, x + 33, 102, b, pal::white, 255, RIGHT);
+    }
+  } else {
+    c.text(font_small, 13, 90, "ПОГОДА ПО ЧАСАМ", pal::cyan);
+    c.text(font_small, 13, 102, "Нет прогноза — подключите телефон", muted);
+  }
+
+  // Подвал: только подтвержденные дополнительные значения.
+  c.hline(7, 118, 226, line);
+  if (hasWeatherExtra()) {
+    if (feelsC > -60 && feelsC < 70) {
+      sfmt(b, sizeof b, "Ощ. %s%d°", feelsC > 0 ? "+" : "", (int)feelsC);
+      c.text(font_small, 10, 122, b, muted);
+    }
+    if (pressureMm > 0) {
+      sfmt(b, sizeof b, "%d мм", (int)pressureMm);
+      c.text(font_small, 89, 122, b, muted);
+    }
+    if (precipitationPct <= 100) {
+      sfmt(b, sizeof b, "Осадки %d%%", (int)precipitationPct);
+      c.text(font_small, 227, 122, b, pal::cyan, 255, RIGHT);
+    }
+  } else {
+    c.text(font_small, 13, 122, "Коротко: питомец", muted);
+    c.text(font_small, 227, 122, "Долго: меню", pal::cyan, 255, RIGHT);
+  }
 }
 
 // --- списки ---
