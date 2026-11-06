@@ -1023,6 +1023,32 @@ int main() {
     check(restored.load(snap) && restored.s.achievements == (1u << ACH_COUNT) - 1u,
           "переоформление наград не изменило Save v4 и не сбросило достижения");
   }
+  // На экране погоды нет батареи; заряд, в том числе цифрами,
+  // отображается в верхней полосе обычного экрана питомца.
+  {
+    Game m; memset(&m.s, 0, sizeof m.s); m.init(12901); m.demo(0);
+    m.s.form = JUNIOR; m.infoScreen = true;
+    m.setBattery(18, false);
+    m.render(cv);
+    std::vector<gfx::Color> weatherLow(fb, fb + gfx::W * gfx::H);
+    m.setBattery(99, false);
+    m.render(cv);
+    check(memcmp(weatherLow.data(), fb, sizeof fb) == 0,
+          "информер на весь экран: не зависит от уровня заряда и не рисует батарею");
+
+    m.infoScreen = false;
+    cv.noClip(); cv.clear(pal::bg);
+    m.setBattery(18, false); m.drawTopBar(cv, true, false);
+    std::vector<gfx::Color> petLow(fb, fb + gfx::W * gfx::H);
+    cv.noClip(); cv.clear(pal::bg);
+    m.setBattery(99, false); m.drawTopBar(cv, true, false);
+    bool numericBatteryChanged = false;
+    for (int y = 0; y < 21; ++y)
+      for (int x = 186; x < 213; ++x)
+        if (petLow[y * gfx::W + x] != fb[y * gfx::W + x])
+          numericBatteryChanged = true;
+    check(numericBatteryChanged, "заряд в процентах выводится рядом с батареей на экране питомца");
+  }
   printf(fails ? "\nОшибок: %d\n" : "\nВсё верно\n", fails);
   return fails != 0;
 }

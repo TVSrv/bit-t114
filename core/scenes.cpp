@@ -261,9 +261,17 @@ static int callIcon(uint8_t k) {
 void Game::drawTopBar(Canvas& c, bool vitals, bool showTime) {
   c.fillRect(0, 0, W, TOP, pal::gutter);
   c.hline(0, TOP - 1, W, pal::line);
-  drawBattery(c, W - 21, 7, batPct, batCharging);
-  // На домашнем экране время скрыто: четыре показателя стали заметно шире.
-  int left = W - 27;
+  // В обычном домашнем экране показываем точный процент заряда рядом с
+  // батареей. Шкалы ухода ограничены слева от числа и не пересекаются с ним.
+  const bool showBatteryPercent = vitals && !showTime;
+  drawBattery(c, W - 19, 7, batPct, batCharging);
+  int left = showBatteryPercent ? W - 55 : W - 27;
+  if (showBatteryPercent) {
+    char charge[8];
+    sfmt(charge, sizeof charge, "%d%%", clampi(batPct, 0, 100));
+    c.text(font_mono, W - 27, 3, charge,
+           batCharging ? pal::green : (batPct <= 20 ? pal::red : pal::white), 255, RIGHT);
+  }
   if (showTime) {
     char tm[8];
     sfmt(tm, sizeof tm, "%02d:%02d", hourNow(), minNow());
@@ -980,21 +988,11 @@ void Game::drawInfoScreen(Canvas& c) {
   const Color line = hex(0x395373), muted = hex(0x9fb2ce);
   c.gradientV(0, 0, W, H, hex(0x0d1a31), hex(0x101b31));
 
-  // Верхняя строка — узнаваемая шапка исходного проекта.
-  weatherTiny(c, 6, 2, hasWeather() ? weather : 2);
-  c.text(font_ui, 25, 1, "ЧАСЫ И ПОГОДА", pal::cyan);
-  // Цветная точка показывает синхронизацию без подписи,
-  // иначе верхняя строка не помещается на настоящих 240 пикселях.
-  c.circle(174, 10, 2.3f, !s.clockSource ? pal::dim : (clockSure ? pal::green : pal::yellow));
-  char charge[8];
-  sfmt(charge, sizeof charge, "%d%%", batPct);
-  c.text(font_small, 215, 4, charge, pal::white, 255, RIGHT);
-  drawBattery(c, W - 19, 9, batPct, batCharging);
-  c.hline(5, 19, 230, line);
-
-  // Дата и цифровые часы, левая панель.
-  c.roundRect(6, 24, 105, 53, 6, line);
-  c.roundRect(7, 25, 103, 51, 5, panel);
+  // Полезное содержимое на всю высоту: заголовок и батарея не занимают
+  // верхние 20 пикселей. Заряд отображается только на экране питомца.
+  // Дата и большие цифровые часы — левая карточка.
+  c.roundRect(6, 4, 105, 66, 6, line);
+  c.roundRect(7, 5, 103, 64, 5, panel);
   uint32_t days = s.epoch / 86400u;
   const int weekday = (int)((days + 5) % 7);  // 01.01.2000 была суббота
   static const char* wd[] = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"};
@@ -1016,76 +1014,76 @@ void Game::drawInfoScreen(Canvas& c) {
   }
   char b[32];
   sfmt(b, sizeof b, "%02d.%02d.%04d", (int)day + 1, month + 1, year);
-  c.text(font_small, 12, 28, b, muted);
-  c.text(font_small, 106, 28, wd[weekday], pal::cyan, 255, RIGHT);
+  c.text(font_small, 12, 10, b, muted);
+  c.text(font_small, 106, 10, wd[weekday], pal::cyan, 255, RIGHT);
   sfmt(b, sizeof b, "%02d:%02d", hourNow(), minNow());
-  c.roundRect(10, 43, 97, 30, 5, panel2);
-  c.textFit(58, 46, b, !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow), 94);
+  c.roundRect(10, 28, 97, 37, 5, panel2);
+  c.textFit(58, 32, b, !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow), 94);
 
-  // Правая половина: текущая погода.
-  c.roundRect(115, 24, 119, 53, 6, line);
-  c.roundRect(116, 25, 117, 51, 5, panel);
+  // Правая карточка: температура, погодное условие, влажность и ветер.
+  c.roundRect(115, 4, 119, 66, 6, line);
+  c.roundRect(116, 5, 117, 64, 5, panel);
   if (hasWeather()) {
-    weatherTiny(c, 121, 32, weather, hourNow() >= 20 || hourNow() < 6);
+    weatherTiny(c, 121, 13, weather, hourNow() >= 20 || hourNow() < 6);
     sfmt(b, sizeof b, "%s%d°", tempC > 0 ? "+" : "", (int)tempC);
-    c.text(font_big, 145, 27, b, pal::white);
+    c.text(font_big, 145, 10, b, pal::white);
     const char* desc[] = {"", "Ясно", "Облачно", "Дождь", "Снег", "Гроза", "Туман"};
-    c.text(font_small, 120, 53, desc[weather <= 6 ? weather : 0], pal::cyan);
-    c.hline(121, 64, 107, line);
+    c.text(font_small, 120, 39, desc[weather <= 6 ? weather : 0], pal::cyan);
+    c.hline(121, 51, 107, line);
     if (hasWeatherExtra()) {
       if (humidityPct <= 100) {
         sfmt(b, sizeof b, "%d%%", (int)humidityPct);
-        c.text(font_small, 120, 66, b, muted);
+        c.text(font_small, 120, 55, b, muted);
       }
       if (windMs < 255) {
         sfmt(b, sizeof b, "%d м/с", (int)windMs);
-        c.text(font_small, 172, 66, b, muted);
+        c.text(font_small, 172, 55, b, muted);
       }
     } else {
-      c.text(font_small, 121, 66, "Нет деталей", muted);
+      c.text(font_small, 121, 55, "Нет деталей", muted);
     }
   } else {
-    c.text(font_ui, 125, 37, "Нет погоды", pal::yellow);
-    c.text(font_small, 125, 55, "Нужен Android", muted);
+    c.text(font_ui, 125, 18, "Нет погоды", pal::yellow);
+    c.text(font_small, 125, 40, "Нужен Android", muted);
   }
 
   // Нижняя область без подсказок кнопок: прогноз занимает всё место,
   // когда нет дополнительных показателей; при наличии показателей
   // оставляем снизу строку с реальными значениями.
   const bool extra = hasWeatherExtra();
-  const int forecastHeight = extra ? 34 : 48;
-  c.roundRect(6, 81, 228, forecastHeight, 5, line);
-  c.roundRect(7, 82, 226, forecastHeight - 2, 4, panel);
+  const int forecastHeight = extra ? 44 : 56;
+  c.roundRect(6, 74, 228, forecastHeight, 5, line);
+  c.roundRect(7, 75, 226, forecastHeight - 2, 4, panel);
   if (extra && forecastCount > 0) {
     for (int i = 0; i < forecastCount && i < 6; ++i) {
       const int x = 10 + i * 37;
-      if (i) c.vline(x - 3, 85, 25, line);
+      if (i) c.vline(x - 3, 80, 31, line);
       sfmt(b, sizeof b, "%02d:00", (int)forecast[i].hour);
-      c.text(font_small, x + 1, 83, b, muted);
-      weatherTiny(c, x + 9, 94, forecast[i].kind,
+      c.text(font_small, x + 1, 79, b, muted);
+      weatherTiny(c, x + 9, 91, forecast[i].kind,
                   forecast[i].hour >= 20 || forecast[i].hour < 6);
       sfmt(b, sizeof b, "%s%d°", forecast[i].temp > 0 ? "+" : "", (int)forecast[i].temp);
-      c.text(font_small, x + 33, 102, b, pal::white, 255, RIGHT);
+      c.text(font_small, x + 33, 107, b, pal::white, 255, RIGHT);
     }
   } else {
-    c.text(font_small, 13, 88, "ПРОГНОЗ ПО ЧАСАМ", pal::cyan);
-    c.text(font_small, 13, 105, "Нет почасового прогноза", muted);
+    c.text(font_small, 13, 82, "ПРОГНОЗ ПО ЧАСАМ", pal::cyan);
+    c.text(font_small, 13, 101, "Нет почасового прогноза", muted);
   }
 
   // Подвал отображается только с реальными погодными значениями.
   if (extra) {
-    c.hline(7, 118, 226, line);
+    c.hline(7, 121, 226, line);
     if (feelsC > -60 && feelsC < 70) {
       sfmt(b, sizeof b, "Ощ. %s%d°", feelsC > 0 ? "+" : "", (int)feelsC);
-      c.text(font_small, 10, 122, b, muted);
+      c.text(font_small, 10, 124, b, muted);
     }
     if (pressureMm > 0) {
       sfmt(b, sizeof b, "%d мм", (int)pressureMm);
-      c.text(font_small, 89, 122, b, muted);
+      c.text(font_small, 89, 124, b, muted);
     }
     if (precipitationPct <= 100) {
       sfmt(b, sizeof b, "Осадки %d%%", (int)precipitationPct);
-      c.text(font_small, 227, 122, b, pal::cyan, 255, RIGHT);
+      c.text(font_small, 227, 124, b, pal::cyan, 255, RIGHT);
     }
   }
 }

@@ -1,3 +1,3 @@
 // Версия прошивки: показывается в приложении (команда «версия»). Менять при каждом выпуске.
 #pragma once
-#define BIT_VERSION "0.43.5-monitor-clip"
+#define BIT_VERSION "0.43.6-expanded-weather"

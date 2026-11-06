@@ -199,5 +199,13 @@ int main(int argc, char** argv) {
   prepare(g, FREELANCER, 12);
   g.now = 16100; g.deskUntil = 0;
   shot(g, dir, "46-monitor-freelancer-idle");
+  // Время и текущая погода используют весь экран; батарея лишь на питомце.
+  prepare(g, JUNIOR, 12);
+  g.setBattery(17, false);
+  shot(g, dir, "47-pet-battery-percent");
+  g.wakeToInfo();
+  g.weather = 0; g.weatherUntil = 0;
+  g.weatherExtraUntil = 0; g.forecastCount = 0;
+  shot(g, dir, "48-info-weather-no-data");
   return 0;
 }
