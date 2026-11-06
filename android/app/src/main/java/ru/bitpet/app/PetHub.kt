@@ -188,7 +188,7 @@ object PetHub {
             }
             request("версия")?.takeIf { it.startsWith("V|") }?.let { firmware.value = it.removePrefix("V|") }
             request("ник")?.takeIf { it.startsWith("N|") }?.let { nick.value = it.removePrefix("N|") }
-            weatherNow.value?.let { request("погода ${it.kind} ${it.temp}") } ?: sendWeather()
+            weatherNow.value?.let { pushWeather(it) } ?: sendWeather()
             refresh()
         }
     }
@@ -214,7 +214,7 @@ object PetHub {
             delay(300)
             request("версия")?.takeIf { it.startsWith("V|") }?.let { firmware.value = it.removePrefix("V|") }
             request("ник")?.takeIf { it.startsWith("N|") }?.let { nick.value = it.removePrefix("N|") }
-            weatherNow.value?.let { request("погода ${it.kind} ${it.temp}") } ?: sendWeather()
+            weatherNow.value?.let { pushWeather(it) } ?: sendWeather()
             refresh()
         }
     }
@@ -282,11 +282,23 @@ object PetHub {
 
     fun clearCity() { place.value = null; weatherNow.value = null; prefs().edit().remove("place").apply() }
 
+    // Два компактных расширения отправляются только в прошивку 0.43+.
+    // Старой 0.41/0.42 оставляем прежнюю команду "погода K T".
+    private suspend fun pushWeather(w: Weather.Now) {
+        if (link.state.value != BitLink.State.READY) return
+        if (request("погода ${w.kind} ${w.temp}") == null) return
+        if (firmware.value?.startsWith("0.43") != true) return
+        request("wx ${w.humidity} ${w.windMs} ${w.feels} ${w.pressureMm} ${w.precipitation}")
+        val points = w.hourly.take(6)
+        request("fc ${points.size}" +
+            points.joinToString("") { " ${it.hour} ${it.temp} ${it.kind}" })
+    }
+
     private suspend fun sendWeather() {
         val p = place.value ?: return
         val w = Weather.current(p) ?: return
         weatherNow.value = w
-        if (link.state.value == BitLink.State.READY) request("погода ${w.kind} ${w.temp}")
+        pushWeather(w)
     }
 
     private suspend fun weatherLoop() {
