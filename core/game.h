@@ -371,7 +371,7 @@ class Game {
   // Расширенный прогноз приходит из Android по BLE, без записи в Save v4.
   // Значение 255 означает, что поле отсутствует в источнике.
   uint8_t humidityPct = 255, windMs = 255, precipitationPct = 255;
-  int8_t feelsC = 0;
+  int8_t feelsC = -99;  // -99: отсутствует, -1 может быть настоящей температурой
   uint16_t pressureMm = 0;
   struct ForecastHour { uint8_t hour = 0, kind = 0; int8_t temp = 0; };
   ForecastHour forecast[6] = {};
