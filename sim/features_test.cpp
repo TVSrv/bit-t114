@@ -1089,11 +1089,11 @@ int main() {
     check(cardsOk, "четыре расширенные карточки не перекрывают друг друга");
     // The old HUD bug was typography: font_small("100%") is 31 px wide.
     // Verify the revised status font never reaches the icon (right of x+15).
-    check(Canvas::width(font_mono, "100%") <= 24 &&
-          40 - Canvas::width(font_mono, "100%") >= 16,
+    check(Canvas::width(gfx::font_mono, "100%") <= 24 &&
+          40 - Canvas::width(gfx::font_mono, "100%") >= 16,
           "100% вписывается в расширенную карточку без наложения на значок");
-    check(Canvas::width(font_small, "99%") <= 25 &&
-          Canvas::width(font_mono, "100%") <= 25,
+    check(Canvas::width(gfx::font_small, "99%") <= 25 &&
+          Canvas::width(gfx::font_mono, "100%") <= 25,
           "процент батареи помещается левее корпуса при 99 и 100%");
     bool batteryBoxStable = true;
     m.s.hunger = 100; m.s.happy = 100; m.s.energy = 100; m.s.discipline = 100;
