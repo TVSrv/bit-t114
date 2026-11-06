@@ -137,7 +137,68 @@ int Game::command(const char* line, char* out, int n) {
     weather = (uint8_t)k;
     tempC = (int8_t)(neg ? -t : t);
     weatherUntil = now + 3 * 3600000u;
+    // При базовом обновлении сбрасываем расширенные показатели до следующего WX/FC.
+    forecastCount = 0;
+    weatherExtraUntil = 0;
+    humidityPct = windMs = precipitationPct = 255;
+    pressureMm = 0;
     return sfmt(out, n, "W|%d", k);
+  }
+
+  // Необязательные расширения погоды (0.43), короткие BLE-команды по отдельности.
+  // wx: влажность %, ветер м/с, ощущается °C, давление мм рт.ст., осадки %.
+  // Отрицательная единица означает отсутствие значения. Старые клиенты работают как раньше.
+  if ((a = word(l, "wx"))) {
+    const char* p = a;
+    int values[5];
+    for (int i = 0; i < 5; ++i) {
+      while (*p == ' ') p++;
+      bool minus = *p == '-';
+      if (minus) ++p;
+      int v = num(p, 4);
+      if (v < 0 || (*p && *p != ' ')) return sfmt(out, n, "WX|0");
+      values[i] = minus ? -v : v;
+    }
+    if (*p || values[0] < -1 || values[0] > 100 ||
+        values[1] < -1 || values[1] > 99 || values[2] < -60 || values[2] > 70 ||
+        values[3] < -1 || values[3] > 900 || values[4] < -1 || values[4] > 100)
+      return sfmt(out, n, "WX|0");
+    humidityPct = values[0] < 0 ? 255 : (uint8_t)values[0];
+    windMs = values[1] < 0 ? 255 : (uint8_t)values[1];
+    feelsC = (int8_t)values[2];
+    pressureMm = values[3] < 0 ? 0 : (uint16_t)values[3];
+    precipitationPct = values[4] < 0 ? 255 : (uint8_t)values[4];
+    weatherExtraUntil = now + 3u * 3600000u;
+    return sfmt(out, n, "WX|1");
+  }
+  // fc: 0..6 тройки (час, температура °C, WMO-тип 1..6).
+  if ((a = word(l, "fc"))) {
+    const char* p = a;
+    int count = num(p, 1);
+    if (count < 0 || count > 6) return sfmt(out, n, "FC|0");
+    ForecastHour items[6] = {};
+    for (int i = 0; i < count; ++i) {
+      int vals[3];
+      for (int j = 0; j < 3; ++j) {
+        while (*p == ' ') p++;
+        bool minus = *p == '-';
+        if (minus) p++;
+        int v = num(p, 3);
+        if (v < 0 || (*p && *p != ' ')) return sfmt(out, n, "FC|0");
+        vals[j] = minus ? -v : v;
+      }
+      if (vals[0] < 0 || vals[0] > 23 || vals[1] < -60 || vals[1] > 70 ||
+          vals[2] < 1 || vals[2] > 6) return sfmt(out, n, "FC|0");
+      items[i].hour = (uint8_t)vals[0];
+      items[i].temp = (int8_t)vals[1];
+      items[i].kind = (uint8_t)vals[2];
+    }
+    while (*p == ' ') p++;
+    if (*p) return sfmt(out, n, "FC|0");
+    forecastCount = (uint8_t)count;
+    for (int i = 0; i < 6; ++i) forecast[i] = items[i];
+    weatherExtraUntil = now + 3u * 3600000u;
+    return sfmt(out, n, "FC|%d", count);
   }
 
   if ((a = word(l, "шаги")) || (a = word(l, "steps"))) {  // приложение присылает шаги с шагомера телефона
