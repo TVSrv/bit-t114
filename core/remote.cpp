@@ -160,7 +160,7 @@ int Game::command(const char* line, char* out, int n) {
       values[i] = minus ? -v : v;
     }
     if (*p || values[0] < -1 || values[0] > 100 ||
-        values[1] < -1 || values[1] > 99 || values[2] < -60 || values[2] > 70 ||
+        values[1] < -1 || values[1] > 99 || (values[2] != -99 && values[2] < -60) || values[2] > 70 ||
         values[3] < -1 || values[3] > 900 || values[4] < -1 || values[4] > 100)
       return sfmt(out, n, "WX|0");
     humidityPct = values[0] < 0 ? 255 : (uint8_t)values[0];
