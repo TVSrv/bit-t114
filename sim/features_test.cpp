@@ -674,9 +674,21 @@ int main() {
     gfx::Color floorAtBottom = fb[(gfx::H - 1) * gfx::W + 100];
     check(floorAtBottom != pal::gutter, "пол комнаты заполняет нижние пиксели");
 
+    // Имитация реальной кнопки платы: пока дисплей спит, событие пробуждения
+    // потребляется целиком, а второе нажатие приходит в Game::button().
+    m.idleMs = 31000;
+    m.wakeToInfo();
+    check(m.infoScreen && m.idleMs == 0 && !m.menuOpen &&
+          m.scene == S_HOME && m.s.alive && m.s.hunger == 60,
+          "первое нажатие при погашенном дисплее показывает часы, не меняя питомца");
+    m.render(cv);
+    m.button(B_SHORT);
+    check(!m.infoScreen && !m.menuOpen && m.scene == S_HOME,
+          "второе нажатие после пробуждения показывает питомца");
+
     m.button(B_SHORT);
     check(m.infoScreen && !m.menuOpen && m.scene == S_HOME,
-          "одно короткое нажатие показывает информер");
+          "когда экран уже включён, короткое показывает информер");
     m.render(cv);
     m.button(B_SHORT);
     check(!m.infoScreen && !m.menuOpen, "следующее короткое возвращает питомца");
