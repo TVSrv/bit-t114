@@ -1,4 +1,4 @@
-// Воспроизводимые скриншоты *настоящего* графического ядра прошивки 0.41.
+// Воспроизводимые скриншоты *настоящего* графического ядра прошивки 0.43.
 // Никакого концепт-арта: каждый PPM рендерится Game::render(Canvas).
 #define private public
 #include "../core/game.h"
@@ -92,6 +92,20 @@ int main(int argc, char** argv) {
   g.tempC = 7;
   g.weather = 2;  // облачно: погода из подключенного Android
   g.weatherUntil = g.now + 3600000u;
+  // Демонстрационные значения взяты только для графического теста.
+  // На реальном устройстве их заменяет Android/Open-Meteo.
+  g.humidityPct = 76; g.windMs = 3; g.feelsC = 5;
+  g.pressureMm = 754; g.precipitationPct = 10;
+  g.weatherExtraUntil = g.now + 3600000u;
+  const uint8_t hours[6] = {12, 15, 18, 21, 0, 3};
+  const int8_t temps[6] = {7, 8, 6, 5, 4, 4};
+  const uint8_t kinds[6] = {2, 1, 2, 1, 1, 2};
+  g.forecastCount = 6;
+  for (int i = 0; i < 6; i++) {
+    g.forecast[i].hour = hours[i];
+    g.forecast[i].temp = temps[i];
+    g.forecast[i].kind = kinds[i];
+  }
   g.wakeToInfo();
   shot(g, dir, "09-clock-weather-after-wake");
   g.button(B_SHORT);
