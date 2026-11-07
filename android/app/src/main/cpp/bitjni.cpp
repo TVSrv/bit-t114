@@ -1,4 +1,5 @@
-// Мост к ядру игры: телефон рисует экран платы тем же кодом, что и прошивка.
+// Android использует тот же игровой движок, но показывает только питомца.
+// Одноразовый экран часов/погоды остаётся исключительно на дисплее T114.
 #include <jni.h>
 #include <string.h>
 #include <mutex>
@@ -23,7 +24,7 @@ extern "C" JNIEXPORT void JNICALL Java_ru_bitpet_app_PetRenderer_nativeApply(JNI
   ensure();
   jsize n = env->GetArrayLength(fields);
   jint* v = env->GetIntArrayElements(fields, nullptr);
-  game.mirror((const int32_t*)v, (int)n);
+  game.mirror((const int32_t*)v, (int)n, false);  // часы платы не перекрывают питомца в приложении
   env->ReleaseIntArrayElements(fields, v, JNI_ABORT);
 }
 

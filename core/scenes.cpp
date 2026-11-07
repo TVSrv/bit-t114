@@ -18,6 +18,7 @@ static constexpr int MENU_Y = 109; // начало нижней панели
  // вместе с мебелью, окнами, питомцем и слоем одеяла, без искажения спрайтов.
 static constexpr int ROOM_SHIFT_Y = 19;
 static constexpr int FLOOR = 120;  // линия пола соответствует оригинальному y=101 + 19
+static constexpr int PET_GROUND_OFFSET = 4;  // ноги питомца визуально упираются в пол
 
 static const char* FOOD_ITEMS[] = {"Кофе", "Пицца", "Печенька", "← Назад"};
 static const char* FOOD_HINT[] = {"+энергия, +немного сытости", "+сытость, +вес", "+настроение, много — вредно", ""};
@@ -201,23 +202,37 @@ void Game::drawBackground(Canvas& c, bool dark) {
   const Color cols[4] = {T.kw, T.str, T.fn, T.cmt};
   for (int m = 0; m < R.screens; m++) {
     const uint8_t* sc = R.screen[m];
-    int x = sc[0] + 2, y = sc[1] + TOP + ROOM_SHIFT_Y + 2, sw = sc[2] - sc[0] - 4, sh = sc[3] - sc[1] - 3;
+    // sc[] охватывает корпус монитора, а не только его видимое стекло.
+    // Старый отступ 2 px допускал текст на левую рамку/скруглённый угол.
+    // Особенно заметно на CRT-комнатах и маленьких экранах хакера.
+    // Реальная область кода: минимум 5 px от левого края корпуса,
+    // 4 px от правого и по 3 px сверху/снизу.
+    const int x = sc[0] + 5, y = sc[1] + TOP + ROOM_SHIFT_Y + 3;
+    const int sw = sc[2] - sc[0] - 9, sh = sc[3] - sc[1] - 6;
     if (sw < 4 || sh < 3) continue;
-    c.fillRect(x - 1, y - 1, sw + 2, sh + 2, T.str, 14);
-    int lines = sh / 3;
-    uint32_t page = now / (typing ? 1800 : 4000) + m * 7;
-    int row = (int)((now / (typing ? 90 : 260)) % (uint32_t)(sw + 6));  // набрано в последней строке
-    for (int i = 0; i < lines; i++) {
-      uint32_t h = (uint32_t)(page * 8 + i + 1) * 2654435761u;
-      int ind = (int)((h >> 20) % 3) * 2, w = sw / 3 + (int)((h >> 24) % (uint32_t)(sw - sw / 3 + 1));
-      if (ind + w > sw) w = sw - ind;
-      int len = i == lines - 1 ? (row < w ? row : w) : w;
-      int split = 2 + (int)((h >> 12) % 4);  // ключевое слово и остальное — двумя цветами
-      if (split > len) split = len;
-      c.fillRect(x + ind, y + i * 3, split, 2, cols[(h >> 16) % 4]);
-      if (len - split - 1 > 0) c.fillRect(x + ind + split + 1, y + i * 3, len - split - 1, 2, cols[(h >> 8) % 4]);
-      if (i == lines - 1 && (now / 400) & 1 && ind + len + 3 <= sw) c.fillRect(x + ind + len + 1, y + i * 3, 2, 2, T.txt);
+
+    // Не подсвечивать левую стенку монитора: glow за пределами стекла
+    // воспринимался как полоса, выходящая из экрана.
+    c.fillRect(x, y, sw, sh, T.str, 5);
+    c.clip(x, y, x + sw, y + sh);
+    const int lines = sh / 3;
+    const uint32_t page = now / (typing ? 1800 : 4000) + m * 7;
+    const int row = (int)((now / (typing ? 90 : 260)) % (uint32_t)(sw + 6));
+    for (int i = 0; i < lines; ++i) {
+      const uint32_t h = (uint32_t)(page * 8 + i + 1) * 2654435761u;
+      const int ind = (int)((h >> 20) % 3) * 2;
+      if (ind >= sw) continue;
+      const int requested = sw / 3 + (int)((h >> 24) % (uint32_t)(sw - sw / 3 + 1));
+      const int w = clampi(requested, 0, sw - ind);
+      const int len = i == lines - 1 ? clampi(row, 0, w) : w;
+      const int split = clampi(2 + (int)((h >> 12) % 4), 0, len);
+      if (split) c.fillRect(x + ind, y + i * 3, split, 2, cols[(h >> 16) % 4]);
+      if (len - split > 1)
+        c.fillRect(x + ind + split + 1, y + i * 3, len - split - 1, 2, cols[(h >> 8) % 4]);
+      if (i == lines - 1 && (now / 400) & 1 && ind + len + 3 <= sw)
+        c.fillRect(x + ind + len + 1, y + i * 3, 2, 2, T.txt);
     }
+    c.noClip();  // не обрезать питомца и остальные элементы комнаты
   }
 }
 
@@ -245,18 +260,81 @@ static int callIcon(uint8_t k) {
   }
 }
 
-void Game::drawTopBar(Canvas& c, bool vitals) {
+void Game::drawTopBar(Canvas& c, bool vitals, bool showTime) {
+  // Pixel-accurate 240x22 HUD: four 43px cards plus a compact 54px battery.
+  // font_small("100%") is 31px wide and collided with the icon; the
+  // 20px-wide monospaced percentage fits all four cards even at 100%.
+  if (vitals && !showTime && s.form != EGG && s.alive) {
+    c.fillRect(0, 0, W, TOP, pal::gutter);
+    const int values[4] = {s.hunger, s.happy, s.energy, s.discipline};
+    const Color colors[4] = {pal::orange, pal::pink, pal::yellow, pal::blue};
+    const bool alerts[4] = {
+      s.callKind == C_HUNGER, s.callKind == C_HAPPY,
+      s.energy < 15 && !s.asleep, s.callKind == C_FAKE
+    };
+    for (int i = 0; i < 4; ++i) {
+      const int x = 2 + i * 45;
+      const int v = clampi(values[i], 0, 100);
+      const Color accent = alerts[i] || v < 25 ? pal::red : colors[i];
+      c.roundRect(x, 1, 43, 20, 4, pal::line);
+      c.roundRect(x + 1, 2, 41, 18, 3, pal::editor);
+      // All glyphs and percentages share the same size and baseline.
+      if (i == 0) drawIcon(c, I_FOOD, x + 8, 9.5f, accent, now, 0.55f);
+      if (i == 1) drawHeart(c, x + 8, 9.5f, 1.1f, accent);
+      if (i == 2) drawBolt(c, x + 8, 9.5f, 1.0f, accent);
+      if (i == 3) drawIcon(c, I_REVIEW, x + 8, 9.5f, accent, now, 0.55f);
+      char value[8];
+      sfmt(value, sizeof value, "%d%%", v);
+      c.text(font_mono, x + 40, 4, value, pal::white, 255, RIGHT);
+      c.roundRect(x + 4, 16, 35, 2, 1, pal::gutter);
+      if (v) c.roundRect(x + 4, 16, 35.0f * v / 100, 2, 1, accent);
+      if (alerts[i]) c.hline(x + 4, 19, 35, pal::red);
+    }
+
+    const int x = 182;
+    const int percent = clampi(batPct, 0, 100);
+    const Color chargeColor = batCharging ? pal::green :
+                              (percent <= 15 ? pal::red : (percent <= 40 ? pal::yellow : pal::green));
+    c.roundRect(x, 1, 54, 20, 4, pal::line);
+    c.roundRect(x + 1, 2, 52, 18, 3, pal::editor);
+    char value[8];
+    sfmt(value, sizeof value, "%d%%", percent);
+    // font_small (99% = 24px) is readable; its 100% is 31px and
+    // cannot fit beside the icon, so use fixed-width for that value.
+    const Font& batteryFont = percent == 100 ? font_mono : font_small;
+    c.text(batteryFont, x + 29, 3, value, chargeColor, 255, RIGHT);
+
+    // Compact battery within the same capsule, with space for digits.
+    const int bx = 214, by = 6;
+    c.roundRect(bx, by, 18, 10, 2, pal::fg);
+    c.roundRect(bx + 1, by + 1, 16, 8, 1, pal::gutter);
+    c.fillRect(bx + 18, by + 3, 3, 4, pal::fg);
+    int filled = (14 * percent + 50) / 100;
+    if (filled > 0) c.roundRect(bx + 2, by + 2, filled, 6, 1, chargeColor);
+    if (batCharging) drawBolt(c, bx + 9, by + 5, 0.75f, pal::white);
+    return;
+  }
   c.fillRect(0, 0, W, TOP, pal::gutter);
   c.hline(0, TOP - 1, W, pal::line);
-  // справа: батарея и часы
-  drawBattery(c, W - 21, 7, batPct, batCharging);
-  char tm[8];
-  sfmt(tm, 8, "%02d:%02d", hourNow(), minNow());
-  int cx = W - 24;
-  // жёлтые часы — время не подтверждено после включения платы
-  c.text(font_ui, cx, 2, tm, !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow), 255, RIGHT);
-  int left = cx - Canvas::width(font_ui, tm) - 6;
-  c.vline(left, 4, 14, pal::line);
+  // В обычном домашнем экране показываем точный процент заряда рядом с
+  // батареей. Шкалы ухода ограничены слева от числа и не пересекаются с ним.
+  const bool showBatteryPercent = vitals && !showTime;
+  drawBattery(c, W - 19, 7, batPct, batCharging);
+  int left = showBatteryPercent ? W - 55 : W - 27;
+  if (showBatteryPercent) {
+    char charge[8];
+    sfmt(charge, sizeof charge, "%d%%", clampi(batPct, 0, 100));
+    c.text(font_mono, W - 27, 3, charge,
+           batCharging ? pal::green : (batPct <= 20 ? pal::red : pal::white), 255, RIGHT);
+  }
+  if (showTime) {
+    char tm[8];
+    sfmt(tm, sizeof tm, "%02d:%02d", hourNow(), minNow());
+    int cx = W - 24;
+    c.text(font_ui, cx, 2, tm, !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow), 255, RIGHT);
+    left = cx - Canvas::width(font_ui, tm) - 6;
+    c.vline(left, 4, 14, pal::line);
+  }
   if (!vitals || s.form == EGG || !s.alive) {
     Color fc = s.form == EGG ? pal::yellow : formColor((Form)s.form);
     c.circle(10, 11, 4, fc);
@@ -353,8 +431,6 @@ Pose Game::basePose() {
   p.gray = clampf((lf - 0.55f) / 0.3f, 0, 1);
   p.cane = lf > 0.8f;
   p.hat = itemIsHat(s.hat) ? s.hat : (holiday() == HD_NEWYEAR ? 20 : 0);
-  p.acc = (uint8_t)((has(ACH_KM1) ? ACC_SCARF : 0) | (has(ACH_WEEK) ? ACC_MEDAL : 0) |
-                    (has(ACH_GAMER) ? ACC_STAR : 0) | (has(ACH_COLLECTOR) ? ACC_CROWN : 0));
   // настроение
   if (s.sick) { p.eyes = E_DIZZY; p.mouth = M_WAVY; p.sweat = true; }
   else if (s.asleep) { p.eyes = E_CLOSED; p.mouth = M_O; p.squash = 0.93f + fsin(now * 0.0015f) * 0.04f; }
@@ -416,9 +492,15 @@ void Game::drawPetHome(Canvas& c) {
   }
   if (cursor >= 0) { lookX = (cursor * (float)W / ICON_COUNT + 12 - petX) / 60; lookY = 1; }
   Pose p = basePose();
+  // Спрайт имеет прозрачные нижние строки, поэтому его геометрический низ
+  // на y=120 выглядел выше линии пола. Сдвигаем только домашнего питомца:
+  // фон/мебель, сон, мини-игры и прогулки сохраняют свои координаты.
+  p.y += PET_GROUND_OFFSET;
   if (walkingNow) {
     p.walk = walkPh;
-    p.lift = fabs_(fsin(walkPh)) * 2.2f;
+    // При ходьбе поднимается только переступающая нога в drawPet().
+    // Дополнительный подъём всего туловища создавал эффект левитации.
+    p.lift = 0;
     p.lookX = (float)petDir;
   }
   if (jumpAt && now - jumpAt < 900) {  // радость
@@ -548,7 +630,7 @@ void Game::drawPetHome(Canvas& c) {
     default: break;
   }
   float ph = formHeight((Form)s.form);
-  float headY = FLOOR - ph - p.lift - 6;
+  float headY = p.y - ph - p.lift - 6;
   if (s.asleep && s.form != EGG && s.form != GHOST) {
     const float BED_X = room ? room->bed : 196;  // где спит в этой комнате
     petX = BED_X; petTarget = BED_X;
@@ -725,10 +807,10 @@ void Game::drawAction(Canvas& c) {
     case A_POOP: {
       float k = clampf(at / 500.0f, 0, 1);
       int i = s.bugs - 1;
-      static const float slots[] = {210, 186, 34, 58};
-      if (i >= 0) {
-        c.ring(slots[i], FLOOR - 4, 4 + k * 16, 2, pal::red, (int)(200 * (1 - k)));
-        if (at < 60) burst(slots[i], FLOOR - 6, 8, pal::red);
+      if (i >= 0 && i < 4) {
+        const float x = (float)bugPosition(i);
+        c.ring(x, FLOOR - 4, 4 + k * 16, 2, pal::red, (int)(200 * (1 - k)));
+        if (at < 60) burst(x, FLOOR - 6, 8, pal::red);
       }
       break;
     }
@@ -817,8 +899,8 @@ void Game::drawToast(Canvas& c) {
   }
 }
 
-// погода на экране: частицы поверх редактора и температура в углу
-// Погода — только за окном: дождь, снег, туман и тучи в стекле; температура — табличкой под окном.
+// Погода в комнате остаётся только художественным эффектом за окном;
+// температура и прогноз теперь показываются на отдельном информационном экране.
 void Game::drawWeather(Canvas& c, bool dark) {
   if (!hasWeather()) return;
   uint32_t t = now;
@@ -870,22 +952,21 @@ void Game::drawWeather(Canvas& c, bool dark) {
   }
   if (dimA) c.fillRect(x0, y0, ww, wh, hex(0x070c1e), dimA);
   c.noClip();
-  // Температура — табличка на стене слева от окна: «z» спящего улетают вправо и её не задевают.
-  char b[12];
-  sfmt(b, sizeof b, "%s%d°", tempC > 0 ? "+" : "", tempC);
-  int w = Canvas::width(font_small, b) + 8;
-  float x = x0 - 7 - w, y = y0 + 2;
-  c.roundRect(x, y, (float)w, 14, 6, pal::ink, 170);
-  c.text(font_small, (int)x + w / 2, (int)y - 1, b, pal::white, 255, CENTER);
 }
 
 void Game::drawHome(Canvas& c) {
+  if (infoScreen) {
+    drawInfoScreen(c);
+    return;
+  }
   bool dark = s.lightOff;
+  ensureBugPositions(); // Включая восстановленные старые Save v4 и демонстрации.
   drawBackground(c, dark);
-  static const float slots[] = {210, 186, 34, 58};
   float cleanX = actionKind == A_CLEAN ? -20 + ease((now - actionStart) / 1500.0f) * 280 : -100;
   for (int i = 0; i < s.bugs && i < 4; i++) {  // баги ползают на полу
-    float x = slots[i] + fsin(now * 0.0013f + i * 2) * 5;
+    // У каждого бага собственная сохранённая случайная точка, небольшое
+    // шевеление не позволяет ему выйти за края или переползти на соседа.
+    float x = (float)bugPosition(i) + fsin(now * 0.0013f + i * 2) * 3;
     if (x < cleanX) continue;
     int dir = fcos(now * 0.0013f + i * 2) > 0 ? 1 : -1;
     drawBug(c, x, FLOOR + 2, now * 0.03f + i, dir, 1.1f);
@@ -894,23 +975,174 @@ void Game::drawHome(Canvas& c) {
   switch (holiday()) {  // праздник — украшение в углу
     case HD_NEWYEAR:
       drawTree(c, deco, FLOOR + 2, now);
-      if ((now / 120) % 2 == 0) spawn(4, (float)(rndInt(W)), (float)TOP, (rndInt(10) - 5), 18, 4.5f, pal::white);  // снег
+      // Снежинки позади питомца, чтобы не закрывать лицо и шапки.
+      for (int i = 0; i < 18; ++i) {
+        int x = (i * 53 + (int)((now / 52) % W) + i * i * 7) % W;
+        int y = TOP + 2 + (i * 19 + (int)((now / 92) % (FLOOR - TOP - 4))) % (FLOOR - TOP - 4);
+        c.circle((float)x, (float)y, 0.8f, pal::white, 135);
+      }
       break;
     case HD_PROGRAMMER: drawCake(c, deco, FLOOR + 2, "256", now); break;
     case HD_HALLOWEEN: drawPumpkin(c, deco, FLOOR + 2, now); break;
     case HD_BIRTHDAY: { char wk[8]; sfmt(wk, 8, "%u", s.ageMin / 10080); drawCake(c, deco, FLOOR + 2, wk, now); break; }
     default: break;
   }
-  drawWeather(c, dark);  // окно и табличка на стене — за питомцем
+  drawWeather(c, dark);  // атмосферная анимация за окном, без температурной таблички
   drawFriend(c);
   drawPetHome(c);
   if (actionKind != A_NONE && actionKind != A_LIGHT) drawAction(c);
   if (dark) c.fillRect(0, TOP, W, H - TOP, hex(0x0b1838), 70);  // ночная дымка до низа комнаты
   drawParticles(c, now - lastRender);
   if (actionKind == A_LIGHT) drawAction(c);
-  drawTopBar(c, true);
+  drawTopBar(c, true, false);
   drawMenuBar(c);
   if (scene == S_HOME) drawToast(c);
+}
+
+// Полноэкранный информер: состояние погоды не сохраняется и приходит по BLE из Android.
+// Компактные погодные пиктограммы: рисуются самим графическим ядром (240x135).
+static void weatherTiny(Canvas& c, int x, int y, uint8_t kind, bool night = false) {
+  const Color cloud = hex(0xc8dcf5), shade = hex(0x90b4dc);
+  if (kind == 1) {
+    if (night) {
+      c.circle(x + 6, y + 5, 4.2f, pal::yellow);
+      c.circle(x + 9, y + 3, 3.7f, hex(0x17243d));
+    } else {
+      c.circle(x + 6, y + 5, 4.5f, pal::yellow);
+      c.line(x + 6, y - 2, x + 6, y, 1, pal::yellow);
+      c.line(x - 1, y + 5, x + 1, y + 5, 1, pal::yellow);
+      c.line(x + 11, y + 5, x + 13, y + 5, 1, pal::yellow);
+    }
+    return;
+  }
+  if (kind == 5) {
+    c.circle(x + 6, y + 5, 5, hex(0x8296be));
+    c.line(x + 5, y + 6, x + 8, y + 3, 1.5f, pal::yellow);
+    c.line(x + 8, y + 3, x + 6, y + 8, 1.5f, pal::yellow);
+  } else if (kind == 6) {
+    c.fillRect(x, y + 2, 14, 2, shade);
+    c.fillRect(x + 2, y + 6, 12, 2, cloud);
+    c.fillRect(x, y + 10, 11, 1, shade);
+  } else {
+    c.circle(x + 5, y + 5, 3.5f, shade);
+    c.circle(x + 9, y + 3.5f, 4, cloud);
+    c.roundRect(x + 2, y + 5, 13, 5, 2, cloud);
+    if (kind == 3) {
+      c.line(x + 5, y + 11, x + 3, y + 13, 1, hex(0x70b9ff));
+      c.line(x + 10, y + 11, x + 8, y + 13, 1, hex(0x70b9ff));
+    }
+    if (kind == 4) {
+      c.circle(x + 5, y + 12, 1, pal::white);
+      c.circle(x + 11, y + 12, 1, pal::white);
+    }
+  }
+}
+
+// Экран-информер использует только реально полученные показатели.
+// Внешний вид ориентирован на выбранный плотный pixel dashboard.
+void Game::drawInfoScreen(Canvas& c) {
+  const Color panel = hex(0x182840), panel2 = hex(0x20334f);
+  const Color line = hex(0x395373), muted = hex(0x9fb2ce);
+  c.gradientV(0, 0, W, H, hex(0x0d1a31), hex(0x101b31));
+
+  // Полезное содержимое на всю высоту: заголовок и батарея не занимают
+  // верхние 20 пикселей. Заряд отображается только на экране питомца.
+  // Дата и большие цифровые часы — левая карточка.
+  c.roundRect(6, 4, 105, 66, 6, line);
+  c.roundRect(7, 5, 103, 64, 5, panel);
+  uint32_t days = s.epoch / 86400u;
+  const int weekday = (int)((days + 5) % 7);  // 01.01.2000 была суббота
+  static const char* wd[] = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"};
+  int year = 2000;
+  uint32_t day = days;
+  while (year < 2100) {
+    const int leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    const int n = 365 + leap;
+    if (day < (uint32_t)n) break;
+    day -= n;
+    year++;
+  }
+  static const int mdays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  int month = 0;
+  for (; month < 11; ++month) {
+    const int n = mdays[month] + (month == 1 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)));
+    if (day < (uint32_t)n) break;
+    day -= n;
+  }
+  char b[32];
+  sfmt(b, sizeof b, "%02d.%02d.%04d", (int)day + 1, month + 1, year);
+  c.text(font_small, 12, 10, b, muted);
+  c.text(font_small, 106, 10, wd[weekday], pal::cyan, 255, RIGHT);
+  sfmt(b, sizeof b, "%02d:%02d", hourNow(), minNow());
+  c.roundRect(10, 28, 97, 37, 5, panel2);
+  c.textFit(58, 32, b, !s.clockSource ? pal::dim : (clockSure ? pal::white : pal::yellow), 94);
+
+  // Правая карточка: температура, погодное условие, влажность и ветер.
+  c.roundRect(115, 4, 119, 66, 6, line);
+  c.roundRect(116, 5, 117, 64, 5, panel);
+  if (hasWeather()) {
+    weatherTiny(c, 121, 13, weather, hourNow() >= 20 || hourNow() < 6);
+    sfmt(b, sizeof b, "%s%d°", tempC > 0 ? "+" : "", (int)tempC);
+    c.text(font_big, 145, 10, b, pal::white);
+    const char* desc[] = {"", "Ясно", "Облачно", "Дождь", "Снег", "Гроза", "Туман"};
+    c.text(font_small, 120, 39, desc[weather <= 6 ? weather : 0], pal::cyan);
+    c.hline(121, 51, 107, line);
+    if (hasWeatherExtra()) {
+      if (humidityPct <= 100) {
+        sfmt(b, sizeof b, "%d%%", (int)humidityPct);
+        c.text(font_small, 120, 55, b, muted);
+      }
+      if (windMs < 255) {
+        sfmt(b, sizeof b, "%d м/с", (int)windMs);
+        c.text(font_small, 172, 55, b, muted);
+      }
+    } else {
+      c.text(font_small, 121, 55, "Нет деталей", muted);
+    }
+  } else {
+    c.text(font_ui, 125, 18, "Нет погоды", pal::yellow);
+    c.text(font_small, 125, 40, "Нужен Android", muted);
+  }
+
+  // Нижняя область без подсказок кнопок: прогноз занимает всё место,
+  // когда нет дополнительных показателей; при наличии показателей
+  // оставляем снизу строку с реальными значениями.
+  const bool extra = hasWeatherExtra();
+  const int forecastHeight = extra ? 44 : 56;
+  c.roundRect(6, 74, 228, forecastHeight, 5, line);
+  c.roundRect(7, 75, 226, forecastHeight - 2, 4, panel);
+  if (extra && forecastCount > 0) {
+    for (int i = 0; i < forecastCount && i < 6; ++i) {
+      const int x = 10 + i * 37;
+      if (i) c.vline(x - 3, 80, 31, line);
+      sfmt(b, sizeof b, "%02d:00", (int)forecast[i].hour);
+      c.text(font_small, x + 1, 79, b, muted);
+      weatherTiny(c, x + 9, 91, forecast[i].kind,
+                  forecast[i].hour >= 20 || forecast[i].hour < 6);
+      sfmt(b, sizeof b, "%s%d°", forecast[i].temp > 0 ? "+" : "", (int)forecast[i].temp);
+      c.text(font_small, x + 33, 107, b, pal::white, 255, RIGHT);
+    }
+  } else {
+    c.text(font_small, 13, 82, "ПРОГНОЗ ПО ЧАСАМ", pal::cyan);
+    c.text(font_small, 13, 101, "Нет почасового прогноза", muted);
+  }
+
+  // Подвал отображается только с реальными погодными значениями.
+  if (extra) {
+    c.hline(7, 121, 226, line);
+    if (feelsC > -60 && feelsC < 70) {
+      sfmt(b, sizeof b, "Ощ. %s%d°", feelsC > 0 ? "+" : "", (int)feelsC);
+      c.text(font_small, 10, 124, b, muted);
+    }
+    if (pressureMm > 0) {
+      sfmt(b, sizeof b, "%d мм", (int)pressureMm);
+      c.text(font_small, 89, 124, b, muted);
+    }
+    if (precipitationPct <= 100) {
+      sfmt(b, sizeof b, "Осадки %d%%", (int)precipitationPct);
+      c.text(font_small, 227, 124, b, pal::cyan, 255, RIGHT);
+    }
+  }
 }
 
 // --- списки ---
@@ -1027,14 +1259,30 @@ void Game::drawStatus(Canvas& c) {
   drawTopBar(c, false);
   c.roundRect(5, TOP + 5, 72, H - TOP - 10, 8, pal::line);
   c.roundRectGrad(6, TOP + 6, 70, H - TOP - 12, 7, pal::editor, pal::gutter);
-  c.text(font_mono, 41, TOP + 8, "ПИТОМЕЦ", pal::fg, 255, CENTER);
+  bool awardsPage = page >= 5 && page <= 10;
+  c.text(font_mono, 41, TOP + 8, awardsPage ? "НАГРАДЫ" : "ПИТОМЕЦ", pal::fg, 255, CENTER);
   c.hline(13, TOP + 89, 56, pal::line);
   char pos[8];
   sfmt(pos, sizeof pos, "%d/12", page + 1);
   c.text(font_mono, 41, TOP + 91, pos, pal::cyan, 255, CENTER);
-  Pose p = basePose();
-  p.x = 41; p.y = TOP + 84; p.scale = 0.84f; p.lookX = 0.6f;
-  drawPet(c, (Form)s.form, p);
+  if (awardsPage) {
+    // Витрина наград в меню «Статус», вместо аксессуаров на лапах питомца.
+    const Color gold = hex(0xf5c542), shadeGold = hex(0x976b29);
+    c.ellipse(41, TOP + 40, 12, 9, gold);
+    c.circle(28, TOP + 38, 4, shadeGold);
+    c.circle(54, TOP + 38, 4, shadeGold);
+    c.roundRect(35, TOP + 45, 12, 5, 2, gold);
+    c.roundRect(39, TOP + 49, 4, 7, 1, shadeGold);
+    c.roundRect(31, TOP + 55, 20, 4, 2, gold);
+    char total[16];
+    sfmt(total, sizeof total, "%u/%u", (unsigned)__builtin_popcount(s.achievements & ((1u << ACH_COUNT) - 1u)),
+         (unsigned)ACH_COUNT);
+    c.text(font_ui, 41, TOP + 69, total, pal::yellow, 255, CENTER);
+  } else {
+    Pose p = basePose();
+    p.x = 41; p.y = TOP + 84; p.scale = 0.84f; p.lookX = 0.6f;
+    drawPet(c, (Form)s.form, p);
+  }
   int x = 86, w = 148;
   char b[64];
   switch (page) {
@@ -1555,6 +1803,27 @@ void Game::drawConfirm(Canvas& c) {
     c.roundRect(x - 38, 79, 76, 23, 5, sel ? pal::line : pal::editor);
     c.text(font_ui, (int)x, 81, i ? "Отмена" : "Да", sel ? col : pal::fg, 255, CENTER);
   }
+}
+
+void Game::renderPhone(Canvas& c) {
+  // Snapshot visually mirrors firmware while never exposing the wake weather
+  // dashboard or transient menu pages to Android. The actual board screen
+  // is already pushed before this offscreen render.
+  const Scene previousScene = scene;
+  const bool previousInfo = infoScreen, previousMenu = menuOpen;
+  const int previousCursor = cursor;
+  const uint32_t previousTransition = menuTransitionAt;
+  scene = S_HOME;
+  infoScreen = false;
+  menuOpen = false;
+  cursor = -1;
+  menuTransitionAt = now - MENU_ANIM_MS;
+  drawHome(c);
+  menuTransitionAt = previousTransition;
+  cursor = previousCursor;
+  menuOpen = previousMenu;
+  infoScreen = previousInfo;
+  scene = previousScene;
 }
 
 void Game::render(Canvas& c) {

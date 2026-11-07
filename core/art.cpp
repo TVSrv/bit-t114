@@ -287,32 +287,9 @@ void drawPet(Canvas& c, Form f, const Pose& p) {
     }
   }
 
-  // аксессуары за достижения
-  if (f != GHOST) {
-    // У персонажей с артов лицо доходит почти до ног, поэтому шарф — тонкий пояс над ногами,
-    // а медаль и звезда висят на нём по бокам, лица не касаются.
-    float waist = sp.leg[0][2] ? b.Y(sp.leg[0][1] + 1.5f) : by - bh * 0.1f;
-    float hw = bw * 0.3f;
-    if (p.acc & ACC_SCARF) {
-      c.roundRect(cx - hw, waist - 1.5f * s, hw * 2, 3 * s, 1.5f * s, hex(0xd9455a), A);
-      for (int i = -2; i <= 2; i++) c.pixel((int)(cx + i * hw * 0.4f), (int)waist, pal::white, A * 150 >> 8);
-      c.roundRect(cx + hw * 0.5f, waist, 2.5f * s, 5 * s, 1.2f * s, hex(0xb8364a), A);
-    }
-    if (p.acc & ACC_MEDAL) {
-      float mx = cx - hw * 0.75f, my = waist + 1.5f * s;
-      c.circle(mx, my, 2.4f * s, hex(0xb8860b), A);
-      c.circle(mx, my, 1.7f * s, hex(0xf5c542), A);
-    }
-    if (p.acc & ACC_STAR) drawStar(c, cx + hw * 0.15f, waist + 1.5f * s, 1.1f * s, hex(0xf5c542), A);
-  }
   float top = b.Y(sp.head) + 1;
   if (hatOn) {
     drawHat(c, p.hat, cx, b.Y(sp.hatY) - 2.5f * sy, sp.hatW * sx * 0.95f, s, p.dir, p.t);
-  } else if ((p.acc & ACC_CROWN) && !p.sleeping && f != GHOST) {
-    float kx = cx + bw * 0.22f, ky = top + 1;
-    c.roundRect(kx - 6 * s, ky - 2 * s, 12 * s, 4 * s, 1, hex(0xf5c542), A);
-    for (int i = -1; i <= 1; i++) c.triangle(kx + i * 4 * s - 2.4f * s, ky - 1.5f * s, kx + i * 4 * s + 2.4f * s, ky - 1.5f * s, kx + i * 4 * s, ky - 7 * s, hex(0xf5c542), A);
-    c.circle(kx, ky - 0.2f * s, 1.1f * s, pal::red, A);
   }
   if (f == BABY && (p.t / 500) & 1) {  // лампочка на антенне мигает
     float ax = b.X(sp.w * 0.5f), ay = b.Y(4);

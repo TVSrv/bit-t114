@@ -2,7 +2,7 @@ name: Build Tamagotchi
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'experiment/pet-clock-weather-screen', 'experiment/rich-weather-dashboard-0.43']
   workflow_dispatch:
 
 permissions:
@@ -24,6 +24,10 @@ jobs:
         run: |
           g++ -O2 -std=c++17 -o /tmp/bit-features-test sim/features_test.cpp core/*.cpp
           /tmp/bit-features-test
+      - name: Check lossless Bluetooth pixel tiles
+        run: |
+          g++ -O2 -std=c++17 -o /tmp/bit-tiles-test sim/mirror_tiles_test.cpp
+          /tmp/bit-tiles-test
       - name: Install PlatformIO
         run: python -m pip install platformio
       - name: Build firmware
@@ -57,7 +61,7 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
       - name: Build APK
         working-directory: android
-        run: bash ./gradlew --no-daemon assembleDebug
+        run: bash ./gradlew --no-daemon testDebugUnitTest assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: Bit-Tamagotchi-APK

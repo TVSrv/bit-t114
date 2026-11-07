@@ -51,10 +51,10 @@ int Game::command(const char* line, char* out, int n) {
 
   // для приложения: всё состояние одной строкой, поля через «|» (порядок — в android/.../PetState.kt)
   if ((a = word(l, "data"))) {
-    return sfmt(out, n,
+    int len = sfmt(out, n,
                 "D|3|%d|%d|%u|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%d|%d|%d|%d|%d|%u|%d|%d|%u|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%d"
                 "|%d|%d|%d|%d|%d|%u|%d|%d|%u|%u|%d|%d|%d|%d"
-                "|%d|%d|%u|%u",
+                "|%d|%d|%u|%u|%d",
                 s.form, s.alive, s.ageMin, s.hunger, s.happy, s.energy, s.discipline, s.weight, s.bugs, s.sick, s.doses,
                 s.asleep, s.lightOff, s.callKind, s.epoch, s.clockSource, clockSure ? 1 : 0, s.generation, s.trait, s.favFood,
                 s.favGame, s.totalMeters, s.questsDone, s.friendsMet, s.achievements, s.formsSeen, s.streak, s.bestReactCs,
@@ -67,7 +67,23 @@ int Game::command(const char* line, char* out, int n) {
                 menuOpen && scene == S_HOME ? 1 : 0, scene == S_HOME ? cursor : -1,
                 (unsigned)((now - menuTransitionAt) < MENU_ANIM_MS ?
                     now - menuTransitionAt : MENU_ANIM_MS),
-                (unsigned)((now - cursorMs) < MENU_IDLE_MS ? now - cursorMs : MENU_IDLE_MS));
+                (unsigned)((now - cursorMs) < MENU_IDLE_MS ? now - cursorMs : MENU_IDLE_MS),
+                 infoScreen && scene == S_HOME ? 1 : 0);
+    // Состояние 0.43 добавлено только после прежних 55 полей.
+    // Телефон с новой Android-сборкой отображает тот же прогноз, что и плата.
+    bool extra = hasWeatherExtra();
+    len += sfmt(out + len, n - len, "|%d|%d|%d|%d|%d|%d",
+                extra ? (int)humidityPct : 255, extra ? (int)windMs : 255,
+                extra ? (int)feelsC : -99, extra ? (int)pressureMm : 0,
+                extra ? (int)precipitationPct : 255, extra ? (int)forecastCount : 0);
+    for (int i = 0; i < 6 && len < n - 30; ++i) {
+      const ForecastHour& f = forecast[i];
+      len += sfmt(out + len, n - len, "|%d|%d|%d",
+                  extra && i < forecastCount ? (int)f.hour : 0,
+                  extra && i < forecastCount ? (int)f.temp : 0,
+                  extra && i < forecastCount ? (int)f.kind : 0);
+    }
+    return len;
   }
 
   if ((a = word(l, "статус")) || (a = word(l, "status"))) {
@@ -136,7 +152,68 @@ int Game::command(const char* line, char* out, int n) {
     weather = (uint8_t)k;
     tempC = (int8_t)(neg ? -t : t);
     weatherUntil = now + 3 * 3600000u;
+    // При базовом обновлении сбрасываем расширенные показатели до следующего WX/FC.
+    forecastCount = 0;
+    weatherExtraUntil = 0;
+    humidityPct = windMs = precipitationPct = 255;
+    pressureMm = 0;
     return sfmt(out, n, "W|%d", k);
+  }
+
+  // Необязательные расширения погоды (0.43), короткие BLE-команды по отдельности.
+  // wx: влажность %, ветер м/с, ощущается °C, давление мм рт.ст., осадки %.
+  // Отрицательная единица означает отсутствие значения. Старые клиенты работают как раньше.
+  if ((a = word(l, "wx"))) {
+    const char* p = a;
+    int values[5];
+    for (int i = 0; i < 5; ++i) {
+      while (*p == ' ') p++;
+      bool minus = *p == '-';
+      if (minus) ++p;
+      int v = num(p, 4);
+      if (v < 0 || (*p && *p != ' ')) return sfmt(out, n, "WX|0");
+      values[i] = minus ? -v : v;
+    }
+    if (*p || values[0] < -1 || values[0] > 100 ||
+        values[1] < -1 || values[1] > 99 || (values[2] != -99 && values[2] < -60) || values[2] > 70 ||
+        values[3] < -1 || values[3] > 900 || values[4] < -1 || values[4] > 100)
+      return sfmt(out, n, "WX|0");
+    humidityPct = values[0] < 0 ? 255 : (uint8_t)values[0];
+    windMs = values[1] < 0 ? 255 : (uint8_t)values[1];
+    feelsC = (int8_t)values[2];
+    pressureMm = values[3] < 0 ? 0 : (uint16_t)values[3];
+    precipitationPct = values[4] < 0 ? 255 : (uint8_t)values[4];
+    weatherExtraUntil = now + 3u * 3600000u;
+    return sfmt(out, n, "WX|1");
+  }
+  // fc: 0..6 тройки (час, температура °C, WMO-тип 1..6).
+  if ((a = word(l, "fc"))) {
+    const char* p = a;
+    int count = num(p, 1);
+    if (count < 0 || count > 6) return sfmt(out, n, "FC|0");
+    ForecastHour items[6] = {};
+    for (int i = 0; i < count; ++i) {
+      int vals[3];
+      for (int j = 0; j < 3; ++j) {
+        while (*p == ' ') p++;
+        bool minus = *p == '-';
+        if (minus) p++;
+        int v = num(p, 3);
+        if (v < 0 || (*p && *p != ' ')) return sfmt(out, n, "FC|0");
+        vals[j] = minus ? -v : v;
+      }
+      if (vals[0] < 0 || vals[0] > 23 || vals[1] < -60 || vals[1] > 70 ||
+          vals[2] < 1 || vals[2] > 6) return sfmt(out, n, "FC|0");
+      items[i].hour = (uint8_t)vals[0];
+      items[i].temp = (int8_t)vals[1];
+      items[i].kind = (uint8_t)vals[2];
+    }
+    while (*p == ' ') p++;
+    if (*p) return sfmt(out, n, "FC|0");
+    forecastCount = (uint8_t)count;
+    for (int i = 0; i < 6; ++i) forecast[i] = items[i];
+    weatherExtraUntil = now + 3u * 3600000u;
+    return sfmt(out, n, "FC|%d", count);
   }
 
   if ((a = word(l, "шаги")) || (a = word(l, "steps"))) {  // приложение присылает шаги с шагомера телефона
@@ -208,7 +285,7 @@ int Game::command(const char* line, char* out, int n) {
   return sfmt(out, n, "Готово");
 }
 
-void Game::mirror(const int32_t* v, int n) {
+void Game::mirror(const int32_t* v, int n, bool showInfoScreen) {
   if (n < 36) return;
   speed = 0;  // своя логика не идёт — только анимация по данным с платы
   Form prevForm = (Form)s.form;
@@ -225,6 +302,24 @@ void Game::mirror(const int32_t* v, int n) {
   s.mistakes = (uint8_t)v[30]; s.careScore = (uint16_t)v[32]; s.seed = (uint32_t)v[33];
   s.gamesWon = (uint16_t)v[34]; s.gamesPlayed = (uint16_t)v[35];
   if (n >= 50) { weather = (uint8_t)v[48]; tempC = (int8_t)v[49]; weatherUntil = weather ? now + 3600000u : 0; }
+  if (n >= 79 && v[60] >= 0 && v[60] <= 6) {
+    humidityPct = (uint8_t)clampi(v[55], 0, 255);
+    windMs = (uint8_t)clampi(v[56], 0, 255);
+    feelsC = (int8_t)clampi(v[57], -99, 70);
+    pressureMm = (uint16_t)clampi(v[58], 0, 900);
+    precipitationPct = (uint8_t)clampi(v[59], 0, 255);
+    forecastCount = (uint8_t)v[60];
+    for (int i = 0; i < 6; ++i) {
+      forecast[i].hour = (uint8_t)clampi(v[61 + i * 3], 0, 23);
+      forecast[i].temp = (int8_t)clampi(v[62 + i * 3], -60, 70);
+      forecast[i].kind = (uint8_t)clampi(v[63 + i * 3], 0, 6);
+    }
+    weatherExtraUntil = now + 3600000u;
+  } else {
+    // Совместимость со старыми пакетами 0.41/0.42.
+    forecastCount = 0;
+    weatherExtraUntil = 0;
+  }
   if (n >= 48) { s.stepsToday = (uint32_t)v[44]; s.coins = (uint32_t)v[45]; s.hat = (uint8_t)v[46]; s.theme = (uint8_t)v[47]; }
   if (n >= 44) {
     // движение: своя случайная прогулка выключена — идём туда же, куда питомец на плате
@@ -258,11 +353,13 @@ void Game::mirror(const int32_t* v, int n) {
     cursor = deviceOpen ? v[51] : -1;
     menuTransitionAt = now - animationAge;
     cursorMs = now - idleAge;
+    infoScreen = showInfoScreen && n >= 55 && v[54] == 1 && !deviceOpen;
   } else {
     // Старые платы не передают курсор; не имитируем фиктивные нажатия.
     menuOpen = false;
     cursor = -1;
     menuTransitionAt = now - MENU_ANIM_MS;
+    infoScreen = false;
   }
 }
 

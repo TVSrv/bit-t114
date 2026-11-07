@@ -52,6 +52,11 @@ object PetHub {
         private set
 
     val pet = MutableStateFlow<PetState?>(null)
+    val mirrorFrame = MutableStateFlow<IntArray?>(null)
+    private val mirrorTiles = MirrorTiles()
+    var mirrorWanted = false
+    private var mirrorSupported: Boolean? = null
+    private var lastMirrorRenew = 0L
     val log = MutableStateFlow<List<LogLine>>(emptyList())
     val found = MutableStateFlow<List<Found>>(emptyList())
     val scanning = MutableStateFlow(false)
@@ -61,6 +66,7 @@ object PetHub {
     val stepsOn = MutableStateFlow(true)        // шагомер телефона → прогулки питомца
     val place = MutableStateFlow<Weather.Place?>(null)   // город для погоды
     val weatherNow = MutableStateFlow<Weather.Now?>(null)
+    val weatherSync = MutableStateFlow("Погода ещё не передана на плату")
     private lateinit var steps: Steps
     val savedAddress = MutableStateFlow<String?>(null)
     @Volatile var uiVisible = false
@@ -93,8 +99,19 @@ object PetHub {
         scope.launch { link.lines.collect { onLine(it) } }
         scope.launch {
             link.state.collect { st ->
-                if (st == BitLink.State.READY) onReady()
-                if (st == BitLink.State.IDLE) scheduleReconnect()
+                if (st == BitLink.State.READY) {
+                    mirrorTiles.clear()
+                    mirrorFrame.value = null
+                    mirrorSupported = null
+                    lastMirrorRenew = 0
+                    onReady()
+                }
+                if (st == BitLink.State.IDLE) {
+                    mirrorTiles.clear()
+                    mirrorFrame.value = null
+                    mirrorSupported = null
+                    scheduleReconnect()
+                }
             }
         }
         scope.launch { pollLoop() }
@@ -182,13 +199,15 @@ object PetHub {
 
     private fun onReady() {
         scope.launch {
+            firmware.value = null  // after an OTA update do not trust a cached version
             if (syncTime.value) {
                 val now = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.US).format(Date())
                 request("время $now")
             }
             request("версия")?.takeIf { it.startsWith("V|") }?.let { firmware.value = it.removePrefix("V|") }
             request("ник")?.takeIf { it.startsWith("N|") }?.let { nick.value = it.removePrefix("N|") }
-            weatherNow.value?.let { request("погода ${it.kind} ${it.temp}") } ?: sendWeather()
+            if (uiVisible && mirrorWanted) renewMirror()
+            weatherNow.value?.let { pushWeather(it) } ?: sendWeather()
             refresh()
         }
     }
@@ -202,7 +221,7 @@ object PetHub {
         link.sendLine(cmd)
         val r = withTimeoutOrNull(timeoutMs) { d.await() }
         pending = null
-        if (cmd != "data") addLog(LogLine(System.currentTimeMillis(), "> $cmd\n${r ?: "нет ответа"}", false))
+        if (cmd != "data" && !cmd.startsWith("mirror ")) addLog(LogLine(System.currentTimeMillis(), "> $cmd\n${r ?: "нет ответа"}", false))
         r
     }
 
@@ -214,7 +233,7 @@ object PetHub {
             delay(300)
             request("версия")?.takeIf { it.startsWith("V|") }?.let { firmware.value = it.removePrefix("V|") }
             request("ник")?.takeIf { it.startsWith("N|") }?.let { nick.value = it.removePrefix("N|") }
-            weatherNow.value?.let { request("погода ${it.kind} ${it.temp}") } ?: sendWeather()
+            weatherNow.value?.let { pushWeather(it) } ?: sendWeather()
             refresh()
         }
     }
@@ -280,13 +299,60 @@ object PetHub {
         return true
     }
 
-    fun clearCity() { place.value = null; weatherNow.value = null; prefs().edit().remove("place").apply() }
+    fun clearCity() {
+        place.value = null
+        weatherNow.value = null
+        weatherSync.value = "Город не выбран"
+        prefs().edit().remove("place").apply()
+    }
+
+    fun updateWeather() {
+        scope.launch { sendWeather() }
+    }
+
+    // The firmware expects W|kind, WX|1 and FC|count acknowledgements.
+    // A current temperature alone is NOT proof that the rich forecast arrived.
+    private suspend fun pushWeather(w: Weather.Now) {
+        if (link.state.value != BitLink.State.READY) {
+            weatherSync.value = "Погода загружена, но Bluetooth не подключён"
+            return
+        }
+        val basic = request("погода ${w.kind} ${w.temp}")
+        if (basic != "W|${w.kind}") {
+            weatherSync.value = "Базовая погода не принята: ${basic ?: "нет ответа"}"
+            return
+        }
+        // Probe WX support directly; remains compatible with firmware 0.44+.
+        val wx = request("wx ${w.humidity} ${w.windMs} ${w.feels} ${w.pressureMm} ${w.precipitation}")
+        if (wx != "WX|1") {
+            weatherSync.value = "Дополнительная погода не принята: ${wx ?: "нет ответа"}"
+            return
+        }
+        val points = w.hourly.take(6)
+        if (points.isEmpty()) {
+            weatherSync.value = "Температура передана, но Open-Meteo не вернул почасовой прогноз"
+            return
+        }
+        val ack = request("fc ${points.size}" +
+            points.joinToString("") { " ${it.hour} ${it.temp} ${it.kind}" })
+        weatherSync.value = if (ack == "FC|${points.size}") {
+            "Передано на T114: температура и ${points.size} точек прогноза"
+        } else {
+            "Почасовой прогноз не принят: ${ack ?: "нет ответа"}"
+        }
+    }
 
     private suspend fun sendWeather() {
-        val p = place.value ?: return
-        val w = Weather.current(p) ?: return
+        val p = place.value ?: run {
+            weatherSync.value = "Выберите город для погоды"
+            return
+        }
+        val w = Weather.current(p) ?: run {
+            weatherSync.value = "Не удалось получить прогноз Open-Meteo — проверьте интернет"
+            return
+        }
         weatherNow.value = w
-        if (link.state.value == BitLink.State.READY) request("погода ${w.kind} ${w.temp}")
+        pushWeather(w)
     }
 
     private suspend fun weatherLoop() {
@@ -296,16 +362,30 @@ object PetHub {
         }
     }
 
+    private suspend fun renewMirror() {
+        // Safe mode by default: never flood Nordic UART with framebuffer tiles.
+        // Use the same native C++ renderer as the firmware, driven by BLE state.
+        mirrorWanted = false
+        mirrorSupported = false
+        mirrorTiles.clear()
+        mirrorFrame.value = null
+    }
+
     private suspend fun pollLoop() {
         while (scope.isActive) {
-            delay(1000)  // раз в секунду: питомец на телефоне идёт туда же и делает то же, что на плате
+            delay(1000)
             if (link.state.value != BitLink.State.READY) continue
-            // экран открыт — каждую секунду; в фоне — раз в минуту (виджет и история)
+            if (uiVisible && mirrorWanted &&
+                System.currentTimeMillis() - lastMirrorRenew > 8000) renewMirror()
             if (uiVisible || System.currentTimeMillis() - lastRefresh > 60_000) refresh()
         }
     }
 
     private fun onLine(line: String) {
+        if (line.startsWith("F|")) {
+            mirrorTiles.accept(line)?.let { mirrorFrame.value = it }
+            return
+        }
         if (line.startsWith("» ")) { onEvent(line.removePrefix("» ")); return }
         pending?.complete(line)
     }
@@ -328,9 +408,15 @@ object PetHub {
             else -> null
         }
         if (kind != null) Sounds.play(kind, sounds.value)
-        if ("будильник выключен" in t) cancel(NOTE_ALARM)
-        else if ("появился баг" in t) notify(text, kind, NOTE_BUGS)
-        else if ("на связи" !in t) notify(text, kind)
+        when {
+            "будильник выключен" in t -> cancel(NOTE_ALARM)
+            "просьба выполнена" in t -> {
+                cancel(NOTE_CALL)
+                cancel(NOTE_BUGS)
+            }
+            "появился баг" in t -> notify(text, kind, NOTE_BUGS)
+            "на связи" !in t -> notify(text, kind)
+        }
         scope.launch { refresh() }
     }
 

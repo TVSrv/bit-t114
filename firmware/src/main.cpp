@@ -25,6 +25,7 @@ static constexpr uint32_t SCREEN_TIMEOUT = 30000;  // гасить экран б
 static constexpr uint32_t SAVE_EVERY = 60000;
 
 static uint32_t lastTick, lastSave, lastBattery, lastGpsByte, gpsOnAt;
+static uint32_t lastMirrorFrame = 0;
 static bool gpsOn = false, gpsSwapped = false;
 static uint8_t flipState = 0, brightState = 0;
 
@@ -200,7 +201,7 @@ static void pollButton(bool screenOn, bool& woke) {
   if (pressLatch && !pressed && !btn.down) {  // нажали и отпустили между опросами
     pressLatch = false;
     game.wake();
-    if (!screenOn) woke = true;
+    if (!screenOn) { woke = true; game.wakeToInfo(); }
     else game.button(pet::B_SHORT);
     return;
   }
@@ -208,8 +209,8 @@ static void pollButton(bool screenOn, bool& woke) {
   if (pressed && !btn.down) {
     btn.down = true; btn.held = false; btn.since = t;
     btn.wakeOnly = !screenOn;
-    if (!screenOn) woke = true;
-    game.wake();
+    if (!screenOn) { woke = true; game.wakeToInfo(); }
+    else game.wake();
   } else if (pressed && btn.down) {
     if (!btn.held && !btn.wakeOnly && t - btn.since >= 2000) {
       btn.held = true;
@@ -328,10 +329,21 @@ void loop() {
   if (tft.on) {
     game.render(canvas);
     tft.push(fb);
+  }
+
+  // A single fixed Android APK receives real RGB565 tiles from any future
+  // firmware. Render the pet offscreen even if the board shows weather or
+  // its physical display is asleep. Never send graphics without subscription.
+  if (ble.mirrorEnabled() && millis() - lastMirrorFrame >= 65u) {
+    game.renderPhone(canvas);
+    ble.streamPixels(fb);
+    lastMirrorFrame = millis();
+  }
+
+  if (tft.on) {
     uint32_t spent = millis() - t;
-    if (spent < 33) delay(33 - spent);  // ~30 кадров/с
+    if (spent < 33) delay(33 - spent);
   } else {
-    // спим между опросами кнопки; ночью, когда питомец спит, — реже (нажатие всё равно ловит прерывание)
-    delay(gpsOn ? 20 : (game.s.asleep && !game.attention() ? 250 : 50));
+    delay(ble.mirrorEnabled() ? 30 : (gpsOn ? 20 : (game.s.asleep && !game.attention() ? 250 : 50)));
   }
 }

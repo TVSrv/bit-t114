@@ -95,7 +95,8 @@ struct Save {
   uint8_t hat, theme;                // надетая шапка (Item или 0), тема редактора (0 — стандартная)
   uint16_t bonusDay;                 // день последнего праздничного бонуса (номер дня от 2000 года, младшие 16 бит)
   uint16_t lastBirthdayWeek;         // последний отмеченный «день рождения» (полных недель жизни)
-  uint8_t reserved4[10];       // [0]: режим ухода 0 спокойный (по умолчанию), 1 классический; [1]: занятия Бита
+  uint8_t reserved4[10];       // [0]: режим ухода; [1]: занятия; [2..5]: X позиций багов (0 = ещё не задано)
+  // Save v4 сохраняет прежний размер; координаты помещаются в резервные байты.
   uint32_t crc;
 };
 
@@ -128,7 +129,7 @@ enum Trait : uint8_t { T_GLUTTON, T_FIDGET, T_SLEEPY, T_SMART, T_CALM, TRAIT_COU
 const char* traitName(uint8_t t);
 const char* traitHint(uint8_t t);
 
-// достижения; у некоторых есть аксессуар, который носят все питомцы
+// достижения: хранятся в Save v4 и показываются в меню «Статус»
 enum Ach : uint8_t {
   ACH_KM1, ACH_KM10, ACH_WEEK, ACH_GAMER, ACH_ADULT, ACH_OLD, ACH_COLLECTOR, ACH_AI, ACH_CLEAN, ACH_ALARM, ACH_GOURMET,
   ACH_EXPLORER, ACH_HUNTER, ACH_REFLEX, ACH_FRIEND, ACH_SOCIAL, ACH_STEPS, ACH_SHOPPER, ACH_COUNT
@@ -176,11 +177,13 @@ class Game {
   void tick(uint32_t dtMs);          // время идёт; можно большими шагами (ускорение)
   void button(Btn b);
   void render(Canvas& c);
+  void renderPhone(Canvas& c);  // exact firmware pixels, always pet home (not wake clock)
 
   // платформа -> игра
   void setBattery(int pct, bool charging) { batPct = pct; batCharging = charging; }
   void gpsFeed(const GpsFix& fix);
   void wake() { idleMs = 0; }
+  void wakeToInfo();  // первое нажатие при погашенном дисплее: часы/погода, без игрового действия
 
   // игра -> платформа
   bool wantsGps() const;
@@ -205,8 +208,13 @@ class Game {
   // Bluetooth: текстовые команды с телефона и события для отправки
   int command(const char* line, char* out, int outSize);
   // приложение: повторить на телефоне экран платы по строке «data» (поля без «D|3|»)
-  void mirror(const int32_t* v, int n);
-  uint16_t eventSeq = 0;             // растёт при каждом новом событии
+  void mirror(const int32_t* v, int n, bool showInfoScreen = true);  // Android: false — всегда питомец, даже когда на T114 часы
+  // Ring buffer for rapid back-to-back alerts; Save is unchanged.
+  // Firmware sends every queued alert instead of only the latest per tick.
+  static constexpr int EVENT_HISTORY = 8;
+  struct EventRecord { uint16_t seq = 0; char text[72] = {0}; };
+  EventRecord events[EVENT_HISTORY] = {};
+  uint16_t eventSeq = 0;
   char eventText[72] = {0};
   void event(const char* text);
 
@@ -239,6 +247,7 @@ class Game {
   int cursor = -1;
   uint32_t cursorMs = 0;
   bool menuOpen = false;
+  bool infoScreen = false;  // часы и погода только при пробуждении (не в Save)
   uint32_t menuTransitionAt = 0;
   void closeMenu();
   int menuOffset() const;  // 0 — виден, 26 — целиком за экраном
@@ -248,7 +257,11 @@ class Game {
   float lookX = 0, lookY = 0;
   float walkPh = 0;
   uint32_t jumpAt = 0;
-  float bugX[4];
+  // Баги используют сохранённые координаты, а не фиксированные точки.
+  // Reserved4[2..5] позволяет восстановить расположение после перезагрузки.
+  uint8_t chooseBugX(int index);
+  void ensureBugPositions();
+  int bugPosition(int index) const;
   uint32_t lightAnim = 0;
 
   // действия
@@ -366,7 +379,17 @@ class Game {
   uint8_t weather = 0;               // 0 нет, 1 ясно, 2 облачно, 3 дождь, 4 снег, 5 гроза, 6 туман
   int8_t tempC = 0;
   uint32_t weatherUntil = 0;
+  // Расширенный прогноз приходит из Android по BLE, без записи в Save v4.
+  // Значение 255 означает, что поле отсутствует в источнике.
+  uint8_t humidityPct = 255, windMs = 255, precipitationPct = 255;
+  int8_t feelsC = -99;  // -99: отсутствует, -1 может быть настоящей температурой
+  uint16_t pressureMm = 0;
+  struct ForecastHour { uint8_t hour = 0, kind = 0; int8_t temp = 0; };
+  ForecastHour forecast[6] = {};
+  uint8_t forecastCount = 0;
+  uint32_t weatherExtraUntil = 0;
   bool hasWeather() const { return weather && now < weatherUntil; }
+  bool hasWeatherExtra() const { return hasWeather() && weatherExtraUntil && now < weatherExtraUntil; }
   void drawWeather(Canvas& c, bool dark);
   void holidayCheck();
   uint8_t confirmMode = 0;
@@ -375,9 +398,10 @@ class Game {
 
   // отрисовка
   void drawBackground(Canvas& c, bool dark);
-  void drawTopBar(Canvas& c, bool vitals);
+  void drawTopBar(Canvas& c, bool vitals, bool showTime = true);
   void drawMenuBar(Canvas& c);
   void drawHome(Canvas& c);
+  void drawInfoScreen(Canvas& c);
   void drawPetHome(Canvas& c);
   bool artMeal(uint32_t at);
   void drawAction(Canvas& c);

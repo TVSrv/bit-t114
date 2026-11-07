@@ -33,7 +33,7 @@ int main() {
   run(g, 1000);
   check(g.has(ACH_KM1), "1234 м прогулок дают «Первый километр»");
   Pose p = g.basePose();
-  check(p.acc & ACC_SCARF, "и питомец в шарфе");
+  check(g.has(ACH_KM1), "первый километр сохранён в разделе достижений, а не на лапах");
   // повреждённое сохранение не принимается
   SaveV1 bad = o; bad.hunger = 1;
   Game g2; memset(&g2.s, 0, sizeof g2.s);
@@ -216,7 +216,7 @@ int main() {
     b.command("data", out, sizeof out);
     printf("     > data → %s\n", out);
     int fields = 0; for (char* p = out; *p; p++) if (*p == '|') fields++;
-    check(strncmp(out, "D|3|", 4) == 0 && fields == 55, "«data» — 54 поля питомца и меню (старые индексы сохранены)");
+    check(strncmp(out, "D|3|", 4) == 0 && fields == 80, "«data» — 79 полей включая расширенный прогноз (старые индексы сохранены)");
     b.command("абракадабра", out, sizeof out);
     check(strstr(out, "Не знаю") != nullptr, "неизвестная команда — подсказка");
   }
@@ -572,6 +572,101 @@ int main() {
     for (int i = 0; i < 100; ++i) refusal = calm.refuses() || refusal;
     check(!refusal, "В спокойном режиме Бит не отказывается от еды и игр");
   }
+  // Координаты багов: каждый новый баг получает случайное место на полу,
+  // позиции разнесены, сохранены в Save v4 и восстанавливаются после ребута.
+  {
+    Game bugs; memset(&bugs.s, 0, sizeof bugs.s);
+    bugs.init(92315); bugs.demo(0);
+    bugs.s.form = MIDDLE;
+    bugs.s.epoch = daysFrom2000(2026, 11, 6) * 86400u + 12 * 3600u;
+    bugs.s.nextBugMin = 1;
+    bool boundsOk = true, spreadOk = true;
+    for (int i = 0; i < 4; ++i) {
+      bugs.s.nextBugMin = 1;
+      bugs.minute();
+      if (bugs.s.bugs != i + 1) spreadOk = false;
+      int x = bugs.bugPosition(i);
+      if (x < 26 || x > 213) boundsOk = false;
+      for (int j = 0; j < i; ++j) {
+        int dx = x - bugs.bugPosition(j);
+        if (dx < 0) dx = -dx;
+        if (dx < 25) spreadOk = false;
+      }
+    }
+    check(boundsOk, "все баги находятся внутри игрового экрана, не вылезают за край");
+    check(spreadOk, "четыре бага появляются в разнесённых случайных местах");
+
+    const uint8_t previous[4] = {
+      bugs.s.reserved4[2], bugs.s.reserved4[3],
+      bugs.s.reserved4[4], bugs.s.reserved4[5]
+    };
+    Save snap = bugs.s;
+    snap.crc = Game::crc32(&snap, offsetof(Save, crc));
+    Game resumed; memset(&resumed.s, 0, sizeof resumed.s);
+    bool restored = resumed.load(snap);
+    for (int i = 0; i < 4; ++i)
+      restored = restored && resumed.bugPosition(i) == previous[i];
+    check(restored, "позиции сохраняются в совместимом Save v4 и остаются после перезагрузки");
+
+    // Старые сохранения ещё содержат количество, но не координаты.
+    for (int i = 0; i < 4; ++i) snap.reserved4[2 + i] = 0;
+    snap.crc = Game::crc32(&snap, offsetof(Save, crc));
+    Game migrated; memset(&migrated.s, 0, sizeof migrated.s);
+    bool migratedOk = migrated.load(snap) && migrated.s.bugs == 4;
+    for (int i = 0; i < 4; ++i) {
+      int x = migrated.bugPosition(i);
+      migratedOk = migratedOk && x >= 26 && x <= 213;
+      for (int j = 0; j < i; ++j) {
+        int dx = x - migrated.bugPosition(j);
+        if (dx < 0) dx = -dx;
+        migratedOk = migratedOk && dx >= 25;
+      }
+    }
+    check(migratedOk, "старые Save v4 с багами автоматически получают корректные позиции");
+
+    // Повторная уборка не должна возвращать баг в точно ту же точку.
+    bugs.s.bugs = 0;
+    bugs.s.nextBugMin = 1;
+    bugs.minute();
+    int shift = bugs.bugPosition(0) - previous[0];
+    if (shift < 0) shift = -shift;
+    check(bugs.s.bugs == 1 && shift >= 25,
+          "после уборки первый баг появляется в новом месте, а не в прежней точке");
+
+    // Изменение координаты должно менять реальную графику, а не только Save.
+    bugs.s.bugs = 1;
+    bugs.s.reserved4[2] = 40;
+    bugs.actionKind = A_NONE;
+    bugs.scene = S_HOME;
+    bugs.menuOpen = false;
+    bugs.infoScreen = false;
+    bugs.render(cv);
+    std::vector<gfx::Color> atLeft(fb, fb + gfx::W * gfx::H);
+    bugs.s.reserved4[2] = 200;
+    bugs.render(cv);
+    check(memcmp(atLeft.data(), fb, sizeof fb) != 0,
+          "отрисовка использует новую координату бага вместо старых фиксированных точек");
+
+    int uniqueX[188] = {};
+    int uniqueCount = 0, leftHalf = 0, rightHalf = 0;
+    for (int seed = 1; seed <= 64; ++seed) {
+      Game trial; memset(&trial.s, 0, sizeof trial.s);
+      trial.init((uint32_t)seed * 733u);
+      trial.demo(0); trial.s.form = MIDDLE;
+      trial.s.epoch = daysFrom2000(2026, 11, 6) * 86400u + 12 * 3600u;
+      trial.s.nextBugMin = 1;
+      trial.minute();
+      int x = trial.bugPosition(0);
+      if (x >= 26 && x <= 213) {
+        if (!uniqueX[x - 26]++) uniqueCount++;
+        if (x < 120) leftHalf++;
+        else rightHalf++;
+      }
+    }
+    check(uniqueCount >= 12 && leftHalf >= 8 && rightHalf >= 8,
+          "64 появления используют разные X по обеим сторонам комнаты");
+  }
+
   // 0.37: долгий режим эволюции. Проверяем обе стороны каждой границы.
   {
     check(EVO_EGG_SECONDS == 600u && EVO_BABY_MINUTES == 720u &&
@@ -664,62 +759,74 @@ int main() {
           resumed.s.stageMin == 0 && resumed.s.ageMin == saved.ageMin,
           "новые сроки сохраняют совместимость с прежним Save v4");
   }
-  // 0.39: нижняя панель скрыта в комнате и плавно выдвигается по нажатию.
+  // Экран информера: часы только после пробуждения, второе нажатие — питомец.
   {
     Game m; memset(&m.s, 0, sizeof m.s); m.init(1001); m.demo(0);
-    check(m.scene == S_HOME && !m.menuOpen && m.menuOffset() == gfx::H - 109,
-          "нижняя панель скрыта при загрузке, комната во всю высоту");
+    check(m.scene == S_HOME && !m.infoScreen && !m.menuOpen &&
+          m.menuOffset() == gfx::H - 109,
+          "домашний экран питомца по умолчанию, панель скрыта");
     m.render(cv);
-    // Последние пиксели под менюшкой теперь принадлежат комнате, а не бару.
     gfx::Color floorAtBottom = fb[(gfx::H - 1) * gfx::W + 100];
-    check(floorAtBottom != pal::gutter,
-          "после скрытия нижняя полоса заполняется изображением пола");
+    check(floorAtBottom != pal::gutter, "пол комнаты заполняет нижние пиксели");
+
+    // Имитация реальной кнопки платы: пока дисплей спит, событие пробуждения
+    // потребляется целиком, а второе нажатие приходит в Game::button().
+    m.idleMs = 31000;
+    m.wakeToInfo();
+    check(m.infoScreen && m.idleMs == 0 && !m.menuOpen &&
+          m.scene == S_HOME && m.s.alive && m.s.hunger == 80,
+          "первое нажатие при погашенном дисплее показывает часы, не меняя питомца");
+    m.render(cv);
     m.button(B_SHORT);
+    check(!m.infoScreen && !m.menuOpen && m.scene == S_HOME,
+          "второе нажатие после пробуждения показывает питомца");
+
+    for (int click = 0; click < 5; ++click) {
+      m.button(B_SHORT);
+      check(!m.infoScreen && !m.menuOpen && m.scene == S_HOME,
+            "повторное короткое на экране питомца НЕ открывает часы");
+    }
+    m.render(cv);
+
+    m.button(B_LONG);
     check(m.menuOpen && m.cursor == 0 && m.menuOffset() == gfx::H - 109,
-          "первое короткое нажатие открывает меню с первого значка");
+          "долгое нажатие открывает меню с первого значка");
     m.tick(120);
     int halfway = m.menuOffset();
-    check(halfway > 0 && halfway < gfx::H - 109,
-          "анимация плавно сдвигает панель снизу вверх");
+    check(halfway > 0 && halfway < gfx::H - 109, "меню плавно выезжает");
     m.tick(150);
-    check(m.menuOffset() == 0,
-          "через 240 мс панель полностью появилась");
+    check(m.menuOffset() == 0, "меню открыто за 240 мс");
     m.button(B_SHORT);
-    check(m.cursor == 1,
-          "повторное короткое нажатие переключает выбранный пункт");
+    check(m.cursor == 1 && !m.infoScreen, "в открытом меню короткое листает");
     m.button(B_LONG);
     check(m.scene == S_LIST && !m.menuOpen && m.cursor == -1,
-          "долгое нажатие выбирает пункт, меню скрывается за списком");
+          "долгое подтверждает выбранный пункт");
     m.button(B_HOLD);
-    check(m.scene == S_HOME && !m.menuOpen, "удержание возвращает в комнату");
-    m.button(B_SHORT);
+    check(m.scene == S_HOME && !m.infoScreen && !m.menuOpen,
+          "удержание возвращает на экран питомца");
+
+    m.wakeToInfo();  // имитация следующего пробуждения после автопогашения
+    check(m.infoScreen, "новое пробуждение вновь открывает часы");
+    m.button(B_LONG);
+    check(m.menuOpen && !m.infoScreen && m.cursor == 0,
+          "с экрана часов долгое открывает меню, не оставляя информер поверх");
+    m.button(B_HOLD);
     m.tick(250);
-    m.button(B_HOLD);
-    check(!m.menuOpen && m.cursor == -1, "удержание скрывает меню прямо в комнате");
-    m.tick(240);
-    check(m.menuOffset() == gfx::H - 109, "панель за 240 мс плавно уехала вниз");
-    m.button(B_SHORT);
-    m.tick(80);
-    int beforeReverse = m.menuOffset();
-    m.button(B_HOLD);
-    int afterReverse = m.menuOffset();
-    check(abs(beforeReverse - afterReverse) <= 1,
-          "закрытие посреди анимации не вызывает скачка");
-    m.tick(240);
-    m.button(B_SHORT);
-    m.tick(240);
+    check(!m.menuOpen && !m.infoScreen, "удержание закрывает меню");
+    m.button(B_LONG); m.tick(250);
     m.tick(7000);
-    check(!m.menuOpen && m.cursor == -1,
-          "после 7 секунд без нажатий меню закрывается автоматически");
+    check(!m.menuOpen && m.cursor == -1, "меню закрывается после 7 секунд");
     m.tick(250);
-    check(m.menuOffset() == gfx::H - 109,
-          "после автоскрытия комната снова полностью открыта");
-    // Сохранение питомца не содержит полей анимации, формат Save v4 прежний.
+    check(m.menuOffset() == gfx::H - 109, "панель скрыта после бездействия");
+
+    m.button(B_SHORT);
+    check(!m.infoScreen, "после закрытия меню короткое НЕ вызывает часы");
+    m.wakeToInfo();
+    check(m.infoScreen, "часы доступны только после нового пробуждения");
     Save snap = m.s; snap.crc = Game::crc32(&snap, offsetof(Save, crc));
     Game loaded; memset(&loaded.s, 0, sizeof loaded.s);
-    check(loaded.load(snap) && !loaded.menuOpen &&
-          loaded.menuOffset() == gfx::H - 109,
-          "после восстановления питомца меню скрыто, сохранение совместимо");
+    check(loaded.load(snap) && !loaded.infoScreen && !loaded.menuOpen,
+          "информер не изменяет Save v4 и сбрасывается при загрузке");
   }
   // 0.40: используются все 135 пикселей, фон, персонаж и мебель единым слоем.
   {
@@ -763,6 +870,70 @@ int main() {
     check(roomOk, "все 11 комнат: высота 135, стена и пол без пустых полос");
     check(sleepOk, "все формы и сон: персонаж на полу y120, меню не заслоняет комнату");
 
+    // Регрессия мониторов: при печати и движении курсора ни один
+    // анимированный пиксель не может выйти за стекло монитора на стену.
+    bool confined = true, animated = false, clipRestored = true;
+    const uint32_t phases[] = {250u, 900u, 2100u, 4200u, 17000u, 43000u};
+    for (int form = BABY; form <= AI; ++form) {
+      const rooms::Room& panel = rooms::ROOM[form];
+      if (!panel.screens) continue;
+      Game monitor; memset(&monitor.s, 0, sizeof monitor.s);
+      monitor.init(3000 + form); monitor.demo(0);
+      monitor.s.form = (uint8_t)form;
+      monitor.s.asleep = 0; monitor.s.lightOff = 0;
+      monitor.s.epoch = daysFrom2000(2026, 11, 6) * 86400u + 12 * 3600u;
+      monitor.s.tz = 0;
+      for (int theme = 0; theme < 5; ++theme) {
+        monitor.s.theme = theme == 0 ? 0 : (uint8_t)(IT_TH_DRACULA + theme - 1);
+        for (int typing = 0; typing <= 1; ++typing) {
+          monitor.now = phases[0];
+          monitor.deskUntil = typing ? 60000u : 0u;
+          monitor.s.asleep = 1;
+          cv.noClip();
+          cv.clear(pal::bg);
+          monitor.drawBackground(cv, false);
+          // Независимый эталон комнаты без анимированных строк.
+          std::vector<gfx::Color> bareScreen(fb, fb + gfx::W * gfx::H);
+          monitor.s.asleep = 0;
+          cv.noClip();
+          cv.clear(pal::bg);
+          monitor.drawBackground(cv, false);
+          std::vector<gfx::Color> original(fb, fb + gfx::W * gfx::H);
+          for (uint32_t instant : phases) {
+            monitor.now = instant;
+            cv.noClip();
+            cv.clear(pal::bg);
+            monitor.drawBackground(cv, false);
+            // При нормальной отрисовке все изменения между кадрами
+            // должны происходить только внутри действующих мониторов.
+            for (int y = 0; y < gfx::H; ++y) {
+              for (int x = 0; x < gfx::W; ++x) {
+                bool phaseChanged = fb[y * gfx::W + x] != original[y * gfx::W + x];
+                bool overPaint = fb[y * gfx::W + x] != bareScreen[y * gfx::W + x];
+                if (!phaseChanged && !overPaint) continue;
+                bool inside = false;
+                for (int m = 0; m < panel.screens; ++m) {
+                  const uint8_t* sc = panel.screen[m];
+                  // Physical bezel excluded: stricter than the old sc+2 test.
+                  const int x0 = sc[0] + 5, y0 = sc[1] + sceneTop + shiftY + 3;
+                  const int x1 = sc[2] - 4, y1 = sc[3] + sceneTop + shiftY - 3;
+                  if (x >= x0 && x < x1 && y >= y0 && y < y1) { inside = true; break; }
+                }
+                if (!inside) confined = false;
+                else if (phaseChanged) animated = true;
+              }
+            }
+          }
+          // Canvas::clip не должен оставаться активным после мониторов.
+          cv.pixel(0, 0, pal::red);
+          if (fb[0] != pal::red) clipRestored = false;
+        }
+      }
+    }
+    check(confined, "9 форм, 5 тем, 2 режима: ни строки, ни подсветка не касаются рамки монитора");
+    check(animated, "строки мониторов продолжают анимироваться после ограничения");
+    check(clipRestored, "после рисования мониторов Canvas возвращает полную область отрисовки");
+
     Game weather; memset(&weather.s, 0, sizeof weather.s); weather.init(1512);
     weather.demo(0); weather.s.form = JUNIOR; weather.s.tz = 0;
     weather.s.epoch = (weather.s.epoch / 86400u) * 86400u + 12 * 3600u;
@@ -778,18 +949,53 @@ int main() {
           fb[oldWy * gfx::W + wx] == oldBefore,
           "погода остаётся внутри сдвинутого окна, не рисуется на старых координатах");
   }
-  // 0.41: совместимый Bluetooth-пакет с точной синхронизацией открытого меню.
+  // 0.43: расширенная погода, шесть часов прогноза и отсутствие фиктивных данных.
+  {
+    Game w; memset(&w.s, 0, sizeof w.s); w.init(43043); w.demo(0);
+    char response[96];
+    check(!w.hasWeatherExtra() && w.forecastCount == 0,
+          "нет расширенного прогноза до подключения смартфона");
+    w.command("погода 2 7", response, sizeof response);
+    check(w.hasWeather() && !w.hasWeatherExtra(),
+          "базовая погода 0.41 продолжает работать");
+    w.command("wx 76 3 5 754 10", response, sizeof response);
+    check(strcmp(response, "WX|1") == 0 && w.hasWeatherExtra() &&
+          w.humidityPct == 76 && w.windMs == 3 && w.feelsC == 5 &&
+          w.pressureMm == 754 && w.precipitationPct == 10,
+          "пять настоящих погодных значений корректно принимаются по BLE");
+    w.command("fc 6 12 7 2 15 8 1 18 6 2 21 5 1 0 4 1 3 4 2", response, sizeof response);
+    check(strcmp(response, "FC|6") == 0 && w.forecastCount == 6 &&
+          w.forecast[0].hour == 12 && w.forecast[5].hour == 3 &&
+          w.forecast[4].temp == 4, "шесть трёхчасовых погодных точек приняты");
+    w.wakeToInfo();
+    w.render(cv);
+    check(w.infoScreen, "отдельный прогноз не влияет на переключение экранов");
+    w.command("fc 1 25 99 2", response, sizeof response);
+    check(strcmp(response, "FC|0") == 0 && w.forecastCount == 6,
+          "ошибочный прогноз отклонён целиком без потери предыдущего");
+    w.command("wx -1 -1 -99 -1 -1", response, sizeof response);
+    check(strcmp(response, "WX|1") == 0 && w.humidityPct == 255 &&
+          w.feelsC == -99 && w.pressureMm == 0,
+          "отсутствующие значения не превращаются в выдуманные данные");
+    w.command("погода 3 -2", response, sizeof response);
+    check(w.forecastCount == 0 && !w.hasWeatherExtra(),
+          "новая базовая погода удаляет устаревший расширенный прогноз");
+    Save copy = w.s; copy.crc = Game::crc32(&copy, offsetof(Save, crc));
+    Game restored; memset(&restored.s, 0, sizeof restored.s);
+    check(restored.load(copy) && restored.forecastCount == 0 &&
+          !restored.hasWeatherExtra(), "формат Save v4 не изменился");
+  }
+  // Совместимый пакет D|3: поле 54 сообщает, открыт ли экран часов.
   {
     Game board; memset(&board.s, 0, sizeof board.s); board.init(4100); board.demo(0);
     Game phone; memset(&phone.s, 0, sizeof phone.s); phone.init(4101); phone.demo(0);
-    // Во время вылупления яйцо не имеет домашнего меню. Тестируем взрослого Бита.
     board.s.form = JUNIOR; phone.s.form = JUNIOR;
     char packet[640];
     auto sync = [&]() {
       memset(packet, 0, sizeof packet);
       board.command("data", packet, sizeof packet);
       check(strncmp(packet, "D|3|", 4) == 0 && strlen(packet) < sizeof packet - 1,
-            "формат D|3 сохраняется, пакет помещается в BLE буфер");
+            "данные помещаются в BLE-буфер");
       std::vector<int32_t> fields;
       const char* p = packet + 4;
       while (*p) {
@@ -803,60 +1009,309 @@ int main() {
       return fields;
     };
     auto idle = sync();
-    check(idle.size() == 54 && idle[50] == 0 && idle[51] == -1,
-          "к прежним 50 полям добавлены четыре состояния меню");
+    check(idle.size() == 79 && idle[50] == 0 && idle[54] == 0,
+          "старые 54 поля неизменны, информер передан 55-м");
     phone.mirror(idle.data(), (int)idle.size());
-    check(!phone.menuOpen && phone.cursor == -1,
-          "закрытое меню одинаково отображается на плате и телефоне");
+    check(!phone.menuOpen && !phone.infoScreen, "телефон повторяет экран питомца");
 
+    board.wakeToInfo();  // на плате вызывается только при пробуждении дисплея
+    auto info = sync();
+    check(info.size() == 79 && info[54] == 1 && info[50] == 0,
+          "в BLE передаётся переключение на часы и погоду");
+    phone.mirror(info.data(), (int)info.size());
+    check(phone.infoScreen && !phone.menuOpen, "режим зеркала для других клиентов по умолчанию сохраняет информер");
+    phone.mirror(info.data(), (int)info.size(), false);
+    check(!phone.infoScreen && !phone.menuOpen && board.infoScreen,
+          "Android показывает питомца, когда на плате открыт экран часов и погоды");
+    auto petAlways = sync();
+    phone.mirror(petAlways.data(), (int)petAlways.size(), false);
+    check(!phone.infoScreen && phone.scene == S_HOME,
+          "следующая BLE-телеметрия не возвращает погоду в Android");
     board.button(B_SHORT);
-    board.tick(90);
+    auto home = sync();
+    phone.mirror(home.data(), (int)home.size());
+    check(!phone.infoScreen, "зеркало возвращается на экран питомца");
+    board.button(B_SHORT);
+    auto later = sync();
+    phone.mirror(later.data(), (int)later.size());
+    check(!board.infoScreen && !phone.infoScreen,
+          "последующие короткие на плате и Android не включают часы");
+
+    board.button(B_LONG); board.tick(90);
     auto opened = sync();
-    check(opened.size() == 54 && opened[50] == 1 && opened[51] == 0 &&
-          opened[52] == 90 && opened[53] == 90,
-          "Bluetooth передаёт выбранный значок и фазу выдвижения");
+    check(opened.size() == 79 && opened[50] == 1 && opened[51] == 0 &&
+          opened[52] == 90 && opened[53] == 90 && opened[54] == 0,
+          "открытое меню передаёт положение и выбранный значок");
     phone.mirror(opened.data(), (int)opened.size());
     check(phone.menuOpen && phone.cursor == board.cursor &&
-          phone.menuOffset() == board.menuOffset(),
-          "телефон повторяет открытое меню и его положение по вертикали");
-
-    board.button(B_SHORT);
-    board.tick(180);
+          phone.menuOffset() == board.menuOffset() && !phone.infoScreen,
+          "зеркало повторяет открытие меню");
+    board.button(B_SHORT); board.tick(180);
     auto selected = sync();
     phone.mirror(selected.data(), (int)selected.size());
-    check(phone.menuOpen && phone.cursor == 1 &&
-          phone.menuOffset() == board.menuOffset(),
-          "телефон получает переключение значков");
-
-    board.button(B_HOLD);
-    board.tick(100);
+    check(phone.menuOpen && phone.cursor == 1 && phone.menuOffset() == board.menuOffset(),
+          "короткое в меню передаёт выбор следующего действия");
+    board.button(B_HOLD); board.tick(100);
     auto closed = sync();
     phone.mirror(closed.data(), (int)closed.size());
-    check(closed[50] == 0 && closed[52] == 100 &&
-          !phone.menuOpen && phone.menuOffset() == board.menuOffset(),
-          "телефон повторяет плавное закрытие меню");
-    board.tick(180);
-    phone.tick(180);
-    check(board.menuOffset() == phone.menuOffset(),
-          "по завершении перехода у платы и телефона меню скрыто");
+    check(!phone.menuOpen && !phone.infoScreen && phone.menuOffset() == board.menuOffset(),
+          "удержание закрывает меню синхронно");
+    board.tick(180); phone.tick(180);
+    check(board.menuOffset() == phone.menuOffset(), "анимация закрытия синхронна");
 
-    // Приложение 0.19 может получать и прежний пакет из 0.40.
-    board.button(B_SHORT); board.tick(250);
+    board.button(B_LONG); board.tick(250);
     auto legacy = sync();
     phone.mirror(legacy.data(), 50);
-    check(!phone.menuOpen && phone.cursor == -1 && phone.menuOffset() == gfx::H - 109,
-          "старый Bluetooth-пакет из 50 полей безопасно поддерживается");
+    check(!phone.menuOpen && !phone.infoScreen && phone.cursor == -1,
+          "старый Bluetooth-пакет из 50 полей поддерживается");
+    // Реальные расширения 0.43 синхронизируются с Android-рендерером.
+    char weatherReply[100];
+    board.command("погода 2 7", weatherReply, sizeof weatherReply);
+    board.command("wx 76 3 5 754 10", weatherReply, sizeof weatherReply);
+    board.command("fc 2 12 7 2 15 8 1", weatherReply, sizeof weatherReply);
+    auto extended = sync();
+    phone.mirror(extended.data(), (int)extended.size());
+    check(extended.size() == 79 && extended[55] == 76 && extended[60] == 2 &&
+          phone.humidityPct == 76 && phone.pressureMm == 754 &&
+          phone.forecastCount == 2 && phone.forecast[1].hour == 15,
+          "Android получает показатели и двухточечный прогноз из телеметрии 0.43");
+    phone.mirror(extended.data(), 55);
+    check(phone.forecastCount == 0 && !phone.hasWeatherExtra(),
+          "старый пакет из 55 полей сбрасывает расширенную погоду в зеркале");
+    phone.mirror(extended.data(), (int)extended.size());
+    phone.mirror(legacy.data(), 54);
+    check(phone.menuOpen && !phone.infoScreen,
+          "пакет 0.41 из 54 полей не показывает фиктивный информер");
+    board.tick(7000); phone.tick(7000);
+    check(!board.menuOpen && !phone.menuOpen, "автоскрытие работает на обоих экранах");
+  }
 
-    // При открытом меню отсчёт бездействия передаётся в прошивку зеркала.
-    board.tick(250);
-    auto again = sync();
-    phone.mirror(again.data(), (int)again.size());
-    check(phone.menuOpen && phone.cursor == 0,
-          "после старого пакета синхронизация восстанавливается");
-    board.tick(7000);
-    phone.tick(7000);
-    check(!board.menuOpen && !phone.menuOpen,
-          "автоскрытие совпадает на обоих устройствах");
+  // Награды больше не входят в позу питомца, но остаются в Save.
+  // Проверяем неизменность внешности всех девяти форм и разницу в витрине статуса.
+  {
+    Game m; memset(&m.s, 0, sizeof m.s); m.init(7788); m.demo(0);
+    m.s.epoch = daysFrom2000(2026, 11, 6) * 86400u + 12 * 3600u;
+    bool petUnchanged = true;
+    for (int form = BABY; form <= AI; ++form) {
+      m.s.form = (uint8_t)form;
+      m.s.achievements = 0;
+      Pose before = m.basePose();
+      before.x = 120; before.y = 120; before.t = 6000;
+      cv.clear(pal::bg); drawPet(cv, (Form)form, before);
+      std::vector<gfx::Color> reference(fb, fb + gfx::W * gfx::H);
+      m.s.achievements = (1u << ACH_COUNT) - 1u;
+      Pose after = m.basePose();
+      after.x = 120; after.y = 120; after.t = 6000;
+      cv.clear(pal::bg); drawPet(cv, (Form)form, after);
+      if (memcmp(reference.data(), fb, sizeof fb) != 0) petUnchanged = false;
+    }
+    check(petUnchanged, "все 9 форм: награды больше не отображаются на питомце");
+
+    m.s.form = JUNIOR;
+    m.scene = S_STATUS; m.page = 5;
+    m.s.achievements = 0;
+    m.render(cv);
+    std::vector<gfx::Color> none(fb, fb + gfx::W * gfx::H);
+    m.s.achievements = (1u << ACH_COUNT) - 1u;
+    m.render(cv);
+    bool changed = memcmp(none.data(), fb, sizeof fb) != 0;
+    check(changed, "открытые кубки и медали меняют витрину наград в «Статусе»");
+    bool allPages = true;
+    for (int i = 5; i <= 10; ++i) {
+      m.page = (uint8_t)i;
+      m.render(cv);
+      if (m.page != i) allPages = false;
+    }
+    check(allPages, "все 18 достижений доступны на шести страницах статуса");
+    Save snap = m.s; snap.crc = Game::crc32(&snap, offsetof(Save, crc));
+    Game restored; memset(&restored.s, 0, sizeof restored.s);
+    check(restored.load(snap) && restored.s.achievements == (1u << ACH_COUNT) - 1u,
+          "переоформление наград не изменило Save v4 и не сбросило достижения");
+  }
+  // На экране погоды нет батареи; заряд, в том числе цифрами,
+  // отображается в верхней полосе обычного экрана питомца.
+  {
+    Game m; memset(&m.s, 0, sizeof m.s); m.init(12901); m.demo(0);
+    m.s.form = JUNIOR; m.infoScreen = true;
+    m.setBattery(18, false);
+    m.render(cv);
+    std::vector<gfx::Color> weatherLow(fb, fb + gfx::W * gfx::H);
+    m.setBattery(99, false);
+    m.render(cv);
+    check(memcmp(weatherLow.data(), fb, sizeof fb) == 0,
+          "информер на весь экран: не зависит от уровня заряда и не рисует батарею");
+
+    m.infoScreen = false;
+    cv.noClip(); cv.clear(pal::bg);
+    m.setBattery(18, false); m.drawTopBar(cv, true, false);
+    std::vector<gfx::Color> petLow(fb, fb + gfx::W * gfx::H);
+    cv.noClip(); cv.clear(pal::bg);
+    m.setBattery(99, false); m.drawTopBar(cv, true, false);
+    bool numericBatteryChanged = false;
+    for (int y = 0; y < 21; ++y)
+      for (int x = 186; x < 213; ++x)
+        if (petLow[y * gfx::W + x] != fb[y * gfx::W + x])
+          numericBatteryChanged = true;
+    check(numericBatteryChanged, "заряд в процентах выводится рядом с батареей на экране питомца");
+    // Every HUD card must respond independently to its own metric without
+    // spilling into neighbours or into the room below y=22.
+    m.s.form = JUNIOR;
+    m.s.hunger = 70; m.s.happy = 70; m.s.energy = 70; m.s.discipline = 70;
+    m.s.callKind = C_NONE;
+    cv.clear(pal::bg);
+    m.drawTopBar(cv, true, false);
+    std::vector<gfx::Color> neutral(fb, fb + gfx::W * gfx::H);
+    bool cardsOk = true;
+    const int cardStarts[] = {2, 47, 92, 137};
+    for (int metric = 0; metric < 4; ++metric) {
+      m.s.hunger = 70; m.s.happy = 70; m.s.energy = 70; m.s.discipline = 70;
+      if (metric == 0) m.s.hunger = 0;
+      if (metric == 1) m.s.happy = 0;
+      if (metric == 2) m.s.energy = 0;
+      if (metric == 3) m.s.discipline = 0;
+      cv.clear(pal::bg);
+      m.drawTopBar(cv, true, false);
+      bool ownChanged = false;
+      for (int y = 0; y < gfx::H; ++y)
+        for (int x = 0; x < gfx::W; ++x)
+          if (fb[y * gfx::W + x] != neutral[y * gfx::W + x]) {
+            if (x >= cardStarts[metric] && x < cardStarts[metric] + 43 && y < 22)
+              ownChanged = true;
+            else cardsOk = false;
+          }
+      if (!ownChanged) cardsOk = false;
+    }
+    check(cardsOk, "четыре расширенные карточки не перекрывают друг друга");
+    // The old HUD bug was typography: font_small("100%") is 31 px wide.
+    // Verify the revised status font never reaches the icon (right of x+15).
+    check(Canvas::width(gfx::font_mono, "100%") <= 24 &&
+          40 - Canvas::width(gfx::font_mono, "100%") >= 16,
+          "100% вписывается в расширенную карточку без наложения на значок");
+    check(Canvas::width(gfx::font_small, "99%") <= 25 &&
+          Canvas::width(gfx::font_mono, "100%") <= 25,
+          "процент батареи помещается левее корпуса при 99 и 100%");
+    bool batteryBoxStable = true;
+    m.s.hunger = 100; m.s.happy = 100; m.s.energy = 100; m.s.discipline = 100;
+    m.setBattery(100, false);
+    cv.clear(pal::bg); m.drawTopBar(cv, true, false);
+    for (int y = 0; y < 22; ++y) {
+      if (fb[y * gfx::W + 180] != pal::gutter && y > 1 && y < 21)
+        batteryBoxStable = false; // gap before battery must remain empty
+    }
+    check(batteryBoxStable, "между дисциплиной и батареей нет наложений при всех 100%");
+    m.s.hunger = 70; m.s.happy = 70; m.s.energy = 70; m.s.discipline = 70;
+    m.setBattery(100, true);
+    cv.clear(pal::bg); m.drawTopBar(cv, true, false);
+    bool largeBatteryShown = false;
+    for (int y = 5; y < 17; ++y)
+      for (int x = 211; x < 235; ++x)
+        if (fb[y * gfx::W + x] != neutral[y * gfx::W + x]) largeBatteryShown = true;
+    check(largeBatteryShown, "крупная батарея отображает уровень и зарядку в единой карточке");
+  }
+  // 0.43.12: full LED / reaction / notification regression.
+  {
+    Game night; memset(&night.s, 0, sizeof night.s);
+    night.init(22001); night.demo(0);
+    night.s.form = JUNIOR; night.s.nightLight = 1; night.s.leds = 0;
+    night.s.epoch = daysFrom2000(2026, 11, 6) * 86400u + 21 * 3600u + 5 * 60u;
+    night.s.asleep = 0; night.s.lightOff = 0;
+    night.now = 5000;
+    night.minute();
+    check(night.s.asleep == 1 && night.s.lightOff == 0 &&
+          night.nightLightColor() == 0x482000,
+          "ночник включается автоматически при ночном сне, даже при включённом свете комнаты");
+    check(night.ledColor() == 0x482000 && night.ledColorScreenOff() == 0x482000,
+          "автоматический ночник работает с включённым и погашенным экраном при LED-эффектах выкл");
+    night.now += 610000;
+    check(night.nightLightColor() != 0 && night.nightLightColor() < 0x482000,
+          "автоматический ночник плавно затухает после 10 минут");
+    night.now += 51000;
+    check(night.nightLightColor() == 0, "автоматический ночник гаснет через 11 минут");
+
+    Game manual; memset(&manual.s, 0, sizeof manual.s);
+    manual.init(22002); manual.demo(0);
+    manual.s.form = MIDDLE; manual.s.energy = 100;
+    manual.s.leds = 0; manual.s.nightLight = 1;
+    manual.activate(I_LIGHT);
+    check(manual.s.lightOff && manual.s.asleep == 0 &&
+          manual.ledColorScreenOff() == 0x482000,
+          "ночник при ручном выключении света работает даже у бодрствующего питомца с энергией 100%");
+    manual.openList(2); manual.listSel = 5; manual.listChoose();
+    check(!manual.s.nightLight && manual.ledColorScreenOff() == 0,
+          "настройка «Ночник: выкл» полностью отключает ночную подсветку");
+    manual.listChoose();
+    check(manual.s.nightLight && manual.nightLightColor() == 0x482000,
+          "включение ночника в темноте запускает свежие 10 минут");
+
+    Game reaction; memset(&reaction.s, 0, sizeof reaction.s);
+    reaction.init(22003); reaction.demo(0);
+    reaction.s.form = HACKER; reaction.s.leds = 0;
+    reaction.startGame(G_REACT);
+    reaction.now = reaction.rGoAt - 50;
+    check(reaction.ledColor() == 0x400000,
+          "«Реакция»: до сигнала обе LED красные, даже при выключенных эффектах");
+    reaction.now = reaction.rGoAt;
+    check(reaction.ledColor() == 0x00FF20,
+          "«Реакция»: после сигнала обе LED зелёные, независимо от LED-эффектов");
+    reaction.button(B_SHORT);
+    check(reaction.gPhase == 1 && reaction.rTime == 0,
+          "«Реакция»: результат нажания в момент сигнала обрабатывается");
+    reaction.s.leds = 1;
+    reaction.gPhase = 0; reaction.rGoAt = reaction.now + 300;
+    check(reaction.ledColor() == 0x400000,
+          "«Реакция»: красный сигнал не зависит от обычных уведомлений");
+
+    Game alerts; memset(&alerts.s, 0, sizeof alerts.s);
+    alerts.init(22004); alerts.demo(0);
+    alerts.s.form = MIDDLE; alerts.s.nightLight = 0;
+    alerts.s.leds = 1; alerts.s.callKind = C_BUGS;
+    alerts.now = 0;
+    check(alerts.ledColorScreenOff() == 0xA020FF,
+          "при погашенном дисплее просьба о багах видна фиолетовым");
+    alerts.now = 500;
+    check(alerts.ledColorScreenOff() == 0xA020FF,
+          "уведомление остаётся видимым 700 мс — опрос дисплея не пропускает вспышку");
+    alerts.now = 700;
+    check(alerts.ledColorScreenOff() == 0,
+          "между вспышками уведомлений светодиоды гаснут");
+    alerts.s.callKind = C_SICK;
+    alerts.now = 4000;
+    check(alerts.ledColorScreenOff() == 0xFF0010,
+          "болезнь передаёт красное уведомление при выключенном дисплее");
+    alerts.s.callKind = C_NONE;
+    alerts.s.leds = 0;
+    alerts.scene = S_ALARM;
+    alerts.now = 4100;
+    check(alerts.ledColor() != 0 && alerts.ledColorScreenOff() == alerts.ledColor(),
+          "будильник использует LED при отключённых эффектах, с экраном и без");
+    alerts.scene = S_HOME;
+
+    const uint16_t seq0 = alerts.eventSeq;
+    alerts.event("Бит зовёт: болеет");
+    alerts.event("Появился баг на полу");
+    alerts.event("Достижение: Чистюля");
+    check(alerts.eventSeq == (uint16_t)(seq0 + 3) &&
+          !strcmp(alerts.events[(seq0 + 1) % Game::EVENT_HISTORY].text, "Бит зовёт: болеет") &&
+          !strcmp(alerts.events[(seq0 + 2) % Game::EVENT_HISTORY].text, "Появился баг на полу") &&
+          !strcmp(alerts.events[(seq0 + 3) % Game::EVENT_HISTORY].text, "Достижение: Чистюля"),
+          "несколько событий за один такт попадают в очередь и не заменяют друг друга");
+    alerts.s.callKind = C_HUNGER;
+    alerts.resolveCall(C_HUNGER);
+    check(alerts.s.callKind == C_NONE &&
+          !strcmp(alerts.eventText, "Бит: просьба выполнена"),
+          "закрытая просьба отправляет Android событие для снятия уведомления");
+    alerts.s.callKind = C_BUGS;
+    alerts.s.bugs = 0;
+    alerts.updateCalls();
+    check(alerts.s.callKind == C_NONE &&
+          !strcmp(alerts.eventText, "Бит: просьба выполнена"),
+          "автоматическое разрешение проблемы закрывает уведомление о багах");
+    alerts.scene = S_ALARM; alerts.sceneStart = alerts.now - 180100;
+    alerts.alarmActive = true;
+    alerts.drawAlarm(cv);
+    check(alerts.scene == S_HOME && !alerts.alarmActive &&
+          !strcmp(alerts.eventText, "Будильник выключен"),
+          "будильник по таймауту сообщает Android, что звук нужно остановить");
   }
   printf(fails ? "\nОшибок: %d\n" : "\nВсё верно\n", fails);
   return fails != 0;

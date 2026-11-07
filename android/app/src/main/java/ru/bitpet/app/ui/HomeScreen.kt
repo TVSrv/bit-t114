@@ -69,6 +69,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -111,6 +112,11 @@ fun HomeScreen(onNeedPermissions: () -> Unit) {
     val scroll = rememberLazyListState()
     var picker by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
+    // Stable mode: render from the same native C++ game engine locally at 20 FPS.
+// The experimental v2 BLE stream could starve state commands for several
+// seconds and then freeze between heavy framebuffer transactions. Leave it
+// disabled until a throughput-safe streaming protocol is proven on hardware.
+LaunchedEffect(selectedTab) { PetHub.mirrorWanted = false }
     val say: (String) -> Unit = { msg -> scope.launch { snack.currentSnackbarData?.dismiss(); snack.showSnackbar(msg) } }
 
     Box(Modifier.fillMaxSize().background(Pal.bg).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
@@ -228,10 +234,12 @@ private fun PillButton(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
-// --- окно с экраном платы: рисует ядро игры, то же, что в прошивке ---
+// --- окно питомца: часы и погода показываются только на дисплее T114 ---
 
 @Composable
 private fun DeviceWindow(link: BitLink.State) {
+    val firmwarePixels by PetHub.mirrorFrame.collectAsState()
+    val latestFirmwarePixels by rememberUpdatedState(firmwarePixels)
     val bmp = remember { Bitmap.createBitmap(PetRenderer.W, PetRenderer.H, Bitmap.Config.ARGB_8888) }
     val px = remember { IntArray(PetRenderer.W * PetRenderer.H) }
     var frame by remember { mutableIntStateOf(0) }
@@ -244,8 +252,15 @@ private fun DeviceWindow(link: BitLink.State) {
             withFrameNanos { t ->
                 val dt = if (last == 0L) 50 else ((t - last) / 1_000_000).toInt().coerceIn(1, 250)
                 last = t
-                PetRenderer.nativeFrame(dt, px)
-                bmp.setPixels(px, 0, PetRenderer.W, 0, 0, PetRenderer.W, PetRenderer.H)
+                val exact = latestFirmwarePixels
+                if (exact != null) {
+                    // Pixel-for-pixel firmware render; native C++ remains fallback
+                    // while a full BLE snapshot is being received or offline.
+                    bmp.setPixels(exact, 0, PetRenderer.W, 0, 0, PetRenderer.W, PetRenderer.H)
+                } else {
+                    PetRenderer.nativeFrame(dt, px)
+                    bmp.setPixels(px, 0, PetRenderer.W, 0, 0, PetRenderer.W, PetRenderer.H)
+                }
                 frame++
             }
         }
@@ -263,7 +278,7 @@ private fun DeviceWindow(link: BitLink.State) {
             val ready = link == BitLink.State.READY
             Box(Modifier.size(7.dp).clip(CircleShape).background(if (ready) Pal.green else Pal.muted))
             Spacer(Modifier.width(7.dp))
-            Text("Экран платы", color = Pal.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            Text("Питомец", color = Pal.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f))
             Text("T114", color = Pal.muted, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
         }
@@ -694,6 +709,7 @@ private fun ToggleRow(title: String, hint: String, value: Boolean, onChange: (Bo
 private fun WeatherRow() {
     val place by PetHub.place.collectAsState()
     val now by PetHub.weatherNow.collectAsState()
+    val syncStatus by PetHub.weatherSync.collectAsState()
     var edit by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -706,7 +722,9 @@ private fun WeatherRow() {
             val w = now
             Text(p.name + (w?.let { " · ${Weather.names[it.kind]}, ${if (it.temp > 0) "+" else ""}${it.temp}°" } ?: ""),
                 color = Pal.muted, fontSize = 12.sp)
+            Text(syncStatus, color = Pal.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
             Row {
+                Text("Обновить погоду", color = Pal.accent, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp, end = 16.dp).clickable { PetHub.updateWeather() })
                 Text("Сменить город", color = Pal.accent, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp, end = 16.dp).clickable { edit = true; text = "" })
                 Text("Выключить", color = Pal.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp).clickable { PetHub.clearCity() })
             }

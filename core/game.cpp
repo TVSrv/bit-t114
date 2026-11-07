@@ -80,6 +80,8 @@ void Game::init(uint32_t seed) {
   sceneStart = now;
   cursor = -1;
   menuOpen = false;
+  infoScreen = false;
+  forecastCount = 0; weatherExtraUntil = 0;
   menuTransitionAt = now - MENU_ANIM_MS;
   nextHobby = now + 45u * 60000u;
   hobbyKind = 0;
@@ -97,12 +99,17 @@ bool Game::load(const Save& saved) {
   sceneStart = now;
   cursor = -1;
   menuOpen = false;
+  infoScreen = false;
+  forecastCount = 0; weatherExtraUntil = 0;
   menuTransitionAt = now - MENU_ANIM_MS;
   // После перезагрузки millis() начинается с нуля; старый момент включения
   // ночника не сохраняется. Если Бит уже спит в темноте — запускаем окно заново.
   lightAnim = now;
   clockSure = false;  // плата была выключена — часы отстают на это время
   if (s.reserved4[0] > 1) s.reserved4[0] = 0;
+  // Старые Save v4 имели только число багов и не содержали их координат.
+  // Не сбрасываем питомца: назначаем позиции один раз и сохраняем в резерв.
+  ensureBugPositions();
   nextHobby = now + 40u * 60000u; hobbyKind = 0;
   if (s.clockSource) say("Был перезапуск — проверь часы", pal::yellow, 8000);
   checkAchievements();
@@ -189,6 +196,63 @@ void Game::second() {
   }
 }
 
+// Позиции багов на полу: X=26..213, анимация смещает их ещё на ±3 px.
+int Game::bugPosition(int index) const {
+  if (index < 0 || index >= 4) return 120;
+  const int value = s.reserved4[2 + index];
+  return value >= 26 && value <= 213 ? value : 120;
+}
+
+// Новый баг не должен совпадать с уже видимыми. Ранее использованная позиция
+// того же слота тоже учитывается, чтобы после уборки баг не возникал снова там же.
+uint8_t Game::chooseBugX(int index) {
+  const int previous = s.reserved4[2 + index];
+  const int start = 26, span = 188; // включительно до 213
+  int best = start, bestScore = -100000;
+  const int offset = rndInt(span);
+  // Проверяем все допустимые пиксели, но начинаем с непредсказуемого смещения:
+  // минимум расстояний обеспечивает разнесение даже при 3 существующих багах.
+  for (int step = 0; step < span; ++step) {
+    const int x = start + (offset + step) % span;
+    int gap = 1000;
+    for (int j = 0; j < index; ++j) {
+      const int other = s.reserved4[2 + j];
+      if (other >= start && other < start + span) {
+        const int dist = x > other ? x - other : other - x;
+        if (dist < gap) gap = dist;
+      }
+    }
+    int score = gap > 48 ? 48 : gap;
+    if (previous >= start && previous < start + span) {
+      const int dist = x > previous ? x - previous : previous - x;
+      if (dist < 30) score -= (30 - dist) * 3;
+    }
+    // У питомца есть собственное пространство: если возможно, не
+    // размещаем новый баг прямо под ним.
+    const int dpet = x > (int)petX ? x - (int)petX : (int)petX - x;
+    if (dpet < 25) score -= (25 - dpet) * 2;
+    if (score > bestScore) { bestScore = score; best = x; }
+    if (score >= 48) break;
+  }
+  return (uint8_t)best;
+}
+
+void Game::ensureBugPositions() {
+  const int count = s.bugs < 4 ? s.bugs : 4;
+  for (int i = 0; i < count; ++i) {
+    int x = s.reserved4[2 + i];
+    bool invalid = x < 26 || x > 213;
+    for (int j = 0; j < i; ++j) {
+      const int prev = s.reserved4[2 + j];
+      if (x > prev ? x - prev < 25 : prev - x < 25) invalid = true;
+    }
+    if (invalid) {
+      s.reserved4[2 + i] = chooseBugX(i);
+      dirty = true;
+    }
+  }
+}
+
 void Game::minute() {
   s.ageMin++;
   s.stageMin++;
@@ -203,7 +267,9 @@ void Game::minute() {
   bool night = sleepTime();
   if (night && s.asleep != 1) {
     s.asleep = 1;
-    if (s.lightOff && s.nightLight) lightAnim = now;
+    // Автоматический ночник включается по началу сна, даже если пользователь
+    // забыл вручную погасить подсветку комнаты.
+    if (s.nightLight) lightAnim = now;
     say("Пора спать… выключи свет", pal::purple, 3000);
   } else if (!night && s.asleep == 1) {
     s.asleep = 0;
@@ -259,8 +325,10 @@ void Game::minute() {
     if (s.nextBugMin > 0) s.nextBugMin--;
     if (s.nextBugMin == 0) {
       if (s.bugs < 4) {
-        bugX[s.bugs] = 0;
+        const int index = s.bugs;
+        s.reserved4[2 + index] = chooseBugX(index);
         s.bugs++;
+        dirty = true;
         sfmt(eventText, sizeof eventText, "Появился баг на полу (%u) — нужна уборка", s.bugs);
         event(eventText);
         if (scene == S_HOME && actionKind == A_NONE) startAction(A_POOP);
@@ -352,7 +420,11 @@ void Game::setCall(uint8_t kind) {
 }
 
 void Game::resolveCall(uint8_t kind) {
-  if (s.callKind == kind) { s.callKind = C_NONE; s.callMin = 0; s.fakeCall = 0; }
+  if (s.callKind == kind) {
+    s.callKind = C_NONE; s.callMin = 0; s.fakeCall = 0;
+    // Tell Android to dismiss stale notification instead of waiting an hour.
+    event("Бит: просьба выполнена");
+  }
 }
 
 void Game::updateCalls() {
@@ -373,6 +445,7 @@ void Game::updateCalls() {
     s.fakeCall = 0;
     static const char* why[] = {"", "хочет есть", "скучает", "пора выключить свет", "болеет", "баги на полу", "", ""};
     if (need) { sfmt(eventText, sizeof eventText, "Бит зовёт: %s", why[need]); event(eventText); }
+    else event("Бит: просьба выполнена");
     return;
   }
   if (need != C_NONE) {
@@ -516,6 +589,9 @@ void Game::event(const char* text) {
     eventText[i] = 0;
   }
   eventSeq++;
+  EventRecord& rec = events[eventSeq % EVENT_HISTORY];
+  rec.seq = eventSeq;
+  memcpy(rec.text, eventText, sizeof rec.text);
 }
 
 void Game::say(const char* t, Color c, uint32_t ms) {
@@ -703,8 +779,17 @@ void Game::closeMenu() {
   cursor = -1;
 }
 
+void Game::wakeToInfo() {
+  idleMs = 0;
+  if (scene == S_HOME) {
+    infoScreen = true;
+    closeMenu();
+  }
+}
+
 void Game::goHome() {
   scene = S_HOME;
+  infoScreen = false;
   closeMenu();
   sceneStart = now;
 }
@@ -840,7 +925,7 @@ void Game::listChoose() {
     case 5:
       s.nightLight ^= 1;
       // Включение ночника в уже тёмной спальне должно сразу давать свет.
-      if (s.nightLight && s.lightOff && s.asleep) lightAnim = now;
+      if (s.nightLight && (s.lightOff || s.asleep)) lightAnim = now;
       dirty = true;
       break;
     case 6: s.flip ^= 1; dirty = true; break;
@@ -882,6 +967,7 @@ void Game::button(Btn b) {
   }
   if (b == B_HOLD && scene == S_DUEL) duelState = 0;
   if (b == B_HOLD && scene == S_HOME) {
+    infoScreen = false;
     closeMenu();
     return;
   }
@@ -892,12 +978,20 @@ void Game::button(Btn b) {
   }
   switch (scene) {
     case S_HOME:
-      if (actionKind != A_NONE && actionKind != A_POOP) return;
-      if (b == B_SHORT || b == B_LONG) {
+      // Часы показываются только при пробуждении из сна.
+      // Второе короткое открывает питомца; следующие короткие ничего не меняют.
+      // Долгое открывает меню, а короткое в открытом меню листает пункты.
+      if (!menuOpen && b == B_SHORT) {
+        if (infoScreen) infoScreen = false;
+        break;
+      }
+      if (actionKind != A_NONE && actionKind != A_POOP && !infoScreen) return;
+      if (b == B_LONG || (menuOpen && b == B_SHORT)) {
         if (!menuOpen) {
+          infoScreen = false;
           menuOpen = true;
           cursor = 0;
-          // Переход из ещё не завершённого скрытия — без скачка позиции.
+          // Сохраняем положение панели при смене направления анимации.
           uint32_t elapsed = now - menuTransitionAt;
           menuTransitionAt = elapsed < MENU_ANIM_MS ?
               now - (MENU_ANIM_MS - elapsed) : now;
@@ -1058,9 +1152,11 @@ static uint32_t scaleRgb(uint32_t c, int k) {  // k 0..256
 }
 
 uint32_t Game::nightLightColor() const {
-  // Ночник — отдельная функция, не зависит от переключателя эффектов «Светодиоды».
-  // Он светит 10 минут после выключения света и плавно гаснет ещё одну минуту.
-  if (!s.nightLight || !s.lightOff || !s.asleep) return 0;
+  // Ночник — отдельная функция, не зависит от переключателя эффектов.
+  // Включается либо при засыпании по расписанию, либо при ручном гашении
+  // света, даже если питомец пока не заснул (энергия 100%).
+  // Светит 10 минут, затем плавно гаснет ещё одну минуту.
+  if (!s.nightLight || (!s.lightOff && !s.asleep)) return 0;
   const uint32_t t = now - lightAnim;
   static constexpr uint32_t WARM = 0x482000; // спокойный янтарный свет двух RGB LED
   if (t < 600000u) return WARM;
@@ -1069,23 +1165,30 @@ uint32_t Game::nightLightColor() const {
 }
 
 uint32_t Game::ledColorScreenOff() const {
+  // Alarm stays visible while the LCD wakes, even if LED effects are off.
+  if (scene == S_ALARM) return ledColor();
   uint32_t night = nightLightColor();
   if (night) return night; // никакие просьбы не прерывают свет ночника
   if (!s.leds) return 0;
-  // При выключенном экране оставляем только короткую вспышку просьбы раз в 4 сек.
-  if (attention() && (now % 4000u) < 120u) return callColor();
+  // При погашенном экране цикл может спать до 250 мс: прежние 120 мс
+  // вспышки раз в 4 с часто полностью пропускались. Делаем 700 мс.
+  if (attention() && (now % 4000u) < 700u) return callColor();
   return 0;
 }
 
 uint32_t Game::ledColor() const {
-  if (scene == S_ALARM && s.leds) {  // будильник заметнее ночника
+  // Игровые сигналы и будильник — функциональные, не декоративные LED.
+  // Поэтому они работают, даже если обычные уведомления LED выключены.
+  // Иначе в «Реакции» не появлялся зелёный сигнал.
+  if (scene == S_ALARM) {
     static const uint32_t rb[] = {0xFF0000, 0xFF8000, 0xFFFF00, 0x00FF00, 0x00A0FF, 0x8000FF};
     return rb[(now / 150) % 6];
   }
+  if (scene == S_GAME_REACT && gPhase == 0)
+    return now >= rGoAt ? 0x00FF20 : 0x400000;
   uint32_t night = nightLightColor();
   if (night) return night;
   if (!s.leds) return 0;
-  if (scene == S_GAME_REACT && gPhase == 0) return now >= rGoAt ? 0x00FF20 : 0x400000;
   if (now < ledFlashUntil) return ((now / 200) & 1) ? ledFlashColor : 0;
   if (attention() && !(s.asleep && s.callKind != C_LIGHT)) {
     uint32_t c = callColor();
@@ -1108,6 +1211,7 @@ void Game::demo(int what) {
   s.alive = 1; s.sick = 0; s.bugs = 0; s.asleep = 0; s.lightOff = 0;
   s.hunger = 80; s.happy = 80; s.energy = 80; s.callKind = 0;
   scene = S_HOME; actionKind = A_NONE; cursor = -1;
+  infoScreen = false;
   menuOpen = false; menuTransitionAt = now - MENU_ANIM_MS;
   for (auto& p : parts) p.life = 0;
   toastUntil = 0;
