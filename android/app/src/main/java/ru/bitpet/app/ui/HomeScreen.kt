@@ -69,6 +69,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -111,7 +112,11 @@ fun HomeScreen(onNeedPermissions: () -> Unit) {
     val scroll = rememberLazyListState()
     var picker by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
-    LaunchedEffect(selectedTab) { PetHub.mirrorWanted = selectedTab == 0 }
+    // Stable mode: render from the same native C++ game engine locally at 20 FPS.
+// The experimental v2 BLE stream could starve state commands for several
+// seconds and then freeze between heavy framebuffer transactions. Leave it
+// disabled until a throughput-safe streaming protocol is proven on hardware.
+LaunchedEffect(selectedTab) { PetHub.mirrorWanted = false }
     val say: (String) -> Unit = { msg -> scope.launch { snack.currentSnackbarData?.dismiss(); snack.showSnackbar(msg) } }
 
     Box(Modifier.fillMaxSize().background(Pal.bg).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
@@ -234,34 +239,33 @@ private fun PillButton(icon: ImageVector, label: String, onClick: () -> Unit) {
 @Composable
 private fun DeviceWindow(link: BitLink.State) {
     val firmwarePixels by PetHub.mirrorFrame.collectAsState()
-    // Immutable bitmap for each validated BLE frame. A Compose Canvas never
-    // reads a Bitmap concurrently being modified by another draw iteration.
-    val exactImage = remember(firmwarePixels) {
-        firmwarePixels?.let { pixels ->
-            Bitmap.createBitmap(PetRenderer.W, PetRenderer.H, Bitmap.Config.ARGB_8888).apply {
-                setPixels(pixels, 0, PetRenderer.W, 0, 0, PetRenderer.W, PetRenderer.H)
-            }.asImageBitmap()
-        }
-    }
+    val latestFirmwarePixels by rememberUpdatedState(firmwarePixels)
     val bmp = remember { Bitmap.createBitmap(PetRenderer.W, PetRenderer.H, Bitmap.Config.ARGB_8888) }
     val px = remember { IntArray(PetRenderer.W * PetRenderer.H) }
     var frame by remember { mutableIntStateOf(0) }
-    LaunchedEffect(exactImage) {
-        // Don't waste cycles running the JNI renderer while live mirror is active.
-        if (exactImage != null) return@LaunchedEffect
+    LaunchedEffect(Unit) {
         var last = 0L
         while (true) {
+            // 20 FPS вместо непрерывной отрисовки под 60/120 Гц дисплей.
+            // Эффект отменяется автоматически при переходе на другую вкладку.
             delay(50L)
             withFrameNanos { t ->
                 val dt = if (last == 0L) 50 else ((t - last) / 1_000_000).toInt().coerceIn(1, 250)
                 last = t
-                PetRenderer.nativeFrame(dt, px)
-                bmp.setPixels(px, 0, PetRenderer.W, 0, 0, PetRenderer.W, PetRenderer.H)
+                val exact = latestFirmwarePixels
+                if (exact != null) {
+                    // Pixel-for-pixel firmware render; native C++ remains fallback
+                    // while a full BLE snapshot is being received or offline.
+                    bmp.setPixels(exact, 0, PetRenderer.W, 0, 0, PetRenderer.W, PetRenderer.H)
+                } else {
+                    PetRenderer.nativeFrame(dt, px)
+                    bmp.setPixels(px, 0, PetRenderer.W, 0, 0, PetRenderer.W, PetRenderer.H)
+                }
                 frame++
             }
         }
     }
-    val localImage = remember { bmp.asImageBitmap() }
+    val image = remember { bmp.asImageBitmap() }
     val dim by animateFloatAsState(if (link == BitLink.State.READY) 0f else 0.55f, tween(400), label = "dim")
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
@@ -280,8 +284,8 @@ private fun DeviceWindow(link: BitLink.State) {
         }
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Pal.bezel).padding(7.dp)) {
             Canvas(Modifier.fillMaxWidth().aspectRatio(240f / 135f).clip(RoundedCornerShape(4.dp))) {
-                if (exactImage == null) frame // native fallback redraw
-                drawImage(exactImage ?: localImage, srcOffset = IntOffset.Zero, srcSize = IntSize(PetRenderer.W, PetRenderer.H),
+                frame  // перерисовка на каждом кадре
+                drawImage(image, srcOffset = IntOffset.Zero, srcSize = IntSize(PetRenderer.W, PetRenderer.H),
                     dstSize = IntSize(size.width.toInt(), size.height.toInt()), filterQuality = FilterQuality.None)
                 if (dim > 0f) drawRect(Color.Black.copy(alpha = dim))
             }
