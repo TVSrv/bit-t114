@@ -1,0 +1,65 @@
+name: Publish direct downloadable test APK and T114 firmware
+
+on:
+  push:
+    branches: ['experiment/rich-weather-dashboard-0.43']
+    paths: ['.github/workflows/publish-downloads.yml']
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    name: Publish stable public download URLs
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Verify source build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA="$(gh api repos/TVSrv/bit-t114/actions/runs/42353851314 --jq .head_sha)"
+          test "$SHA" = "bc3de2d33fd71cad03228fb40d8b649527d03059"
+          echo "Using successfully tested Android 0.32 and T114 0.43.13 artifacts from $SHA"
+
+      - name: Download matching build artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/android out/firmware release
+          gh run download 42353851314 --repo TVSrv/bit-t114 --name Bit-Tamagotchi-APK --dir out/android
+          gh run download 42353851314 --repo TVSrv/bit-t114 --name Heltec-T114-firmware --dir out/firmware
+          cp out/android/app-debug.apk release/Bit-Android-0.32.apk
+          cp out/firmware/firmware-ota.zip release/Bit-T114-0.43.13-OTA.zip
+          cp out/firmware/.pio/build/t114/firmware.uf2 release/Bit-T114-0.43.13.uf2
+          test -s release/Bit-Android-0.32.apk
+          test -s release/Bit-T114-0.43.13-OTA.zip
+          test -s release/Bit-T114-0.43.13.uf2
+
+      - name: Verify exactly tested binaries
+        run: |
+          set -euo pipefail
+          cd release
+          echo '0180b5e75ccbb044dc1f86b194c32a58b5cf0b0f768ee04fc8287a0ecfb03538  Bit-Android-0.32.apk' | sha256sum -c
+          echo '982bd0c3fea78c0f1b8a7755d08b8c26fc4f6aaf95ba70e33a29ed47d1c15e92  Bit-T114-0.43.13-OTA.zip' | sha256sum -c
+          echo 'f26625f8e8abfdcb7d81c813c7b328b6a2e57991eed54c970b2d19302a469800  Bit-T114-0.43.13.uf2' | sha256sum -c
+
+      - name: Publish publicly downloadable test release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="bit-t114-v0.43.13-android-v0.32-test"
+          if gh release view "$TAG" --repo TVSrv/bit-t114 >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber --repo TVSrv/bit-t114
+          else
+            gh release create "$TAG" release/* \
+              --repo TVSrv/bit-t114 \
+              --target bc3de2d33fd71cad03228fb40d8b649527d03059 \
+              --title "Bit Android 0.32 + T114 0.43.13 (test)" \
+              --notes "Direct APK and T114 Bluetooth OTA/USB UF2 downloads. Atomic BLE frames fix broken pet rendering on Android. These are TEST builds; Android APK is debug-signed. Firmware 0.43.13 and Android 0.32 must be used together for atomic mirror. Keep a pet backup before replacing APK. GitHub Actions CI run 42353851314 passed firmware and Android tests." \
+              --prerelease
+          fi
