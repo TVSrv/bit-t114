@@ -1,13 +1,15 @@
 package ru.bitpet.app
 
-import android.util.Base64
+import java.util.Base64
 
 /**
- * Lossless RGB565 frame assembled from firmware tiles over Nordic UART.
+ * Atomic BLE mirror decoder (protocol v2).
  *
- * Each tile is F|<tile index>|<Base64 RGB565 little-endian>; unknown lines are
- * ignored. The protocol is stable across firmware graphics/room changes.
- * No downloaded executable code and no dependence on firmware sprite assets.
+ * B|seq|tileCount|baseSeq starts one immutable RGB565 frame delta.
+ * T|seq|tileIndex|base64 carries one 16x4 RGB565 LE tile.
+ * E|seq|checksum closes the frame. Publish only after ALL tiles and
+ * the FNV-1a checksum match. A corrupt or missing chunk requests a new
+ * full snapshot; no mixed-timestamp pixels can reach Compose.
  */
 internal class MirrorTiles {
     companion object {
@@ -20,61 +22,141 @@ internal class MirrorTiles {
         const val COUNT = COLS * ROWS
     }
 
-    private val pixels = IntArray(WIDTH * HEIGHT) { 0xff101b31.toInt() }
-    private val seen = BooleanArray(COUNT)
-    private var received = 0
-    private var lastPublish = 0L
+    private var committed = ByteArray(WIDTH * HEIGHT * 2)
+    private var committedSequence = 0
+    private var hasCommitted = false
+    private var working: ByteArray? = null
+    private var incomingSequence = -1
+    private var expectedCount = 0
+    private var receivedCount = 0
+    private val received = BooleanArray(COUNT)
+    private var resyncRequired = false
 
     fun clear() {
-        seen.fill(false)
-        received = 0
-        lastPublish = 0
+        committed = ByteArray(WIDTH * HEIGHT * 2)
+        committedSequence = 0
+        hasCommitted = false
+        resetTransaction()
+        resyncRequired = false
     }
 
-    /**
-     * Returns a frame only after every tile has been received at least once.
-     * Invalid packets are dropped without affecting a pending BLE command.
-     */
-    fun accept(line: String, now: Long = System.currentTimeMillis()): IntArray? {
-        if (!line.startsWith("F|")) return null
-        val separator = line.indexOf('|', 2)
-        if (separator < 0) return null
-        val id = line.substring(2, separator).toIntOrNull() ?: return null
-        if (id !in 0 until COUNT) return null
-        val tileX = id % COLS * TW
-        val tileY = id / COLS * TH
-        val width = minOf(TW, WIDTH - tileX)
-        val height = minOf(TH, HEIGHT - tileY)
-        val raw = try {
-            Base64.decode(line.substring(separator + 1), Base64.NO_WRAP)
-        } catch (_: IllegalArgumentException) {
+    fun takeResyncRequest(): Boolean {
+        val flag = resyncRequired
+        resyncRequired = false
+        return flag
+    }
+
+    /** Retain last good screen, reset only frame sequencing for full resync. */
+    fun prepareResync() {
+        hasCommitted = false
+        committedSequence = 0
+        resetTransaction()
+    }
+
+    private fun resetTransaction() {
+        working = null
+        incomingSequence = -1
+        expectedCount = 0
+        receivedCount = 0
+        received.fill(false)
+    }
+
+    private fun invalidate() {
+        resetTransaction()
+        resyncRequired = true
+    }
+
+    /** Returns a complete immutable ARGB image or null if still assembling. */
+    fun accept(line: String): IntArray? {
+        if (line.startsWith("B|")) {
+            val p = line.split('|')
+            if (p.size != 4) { invalidate(); return null }
+            val seq = p[1].toIntOrNull() ?: run { invalidate(); return null }
+            val count = p[2].toIntOrNull() ?: run { invalidate(); return null }
+            val base = p[3].toIntOrNull() ?: run { invalidate(); return null }
+            if (seq !in 0..65535 || base !in 0..65535 || count !in 1..COUNT ||
+                working != null || (hasCommitted && base != committedSequence) ||
+                (!hasCommitted && (base != 0 || count != COUNT))) {
+                invalidate()
+                return null
+            }
+            incomingSequence = seq
+            working = committed.copyOf()
+            expectedCount = count
+            receivedCount = 0
+            received.fill(false)
             return null
         }
-        if (raw.size != width * height * 2) return null
-
-        var p = 0
-        for (y in 0 until height) {
-            val row = (tileY + y) * WIDTH + tileX
-            for (x in 0 until width) {
-                val rgb = (raw[p].toInt() and 255) or ((raw[p + 1].toInt() and 255) shl 8)
-                p += 2
-                var r = (rgb shr 11) shl 3
-                var g = ((rgb shr 5) and 63) shl 2
-                var b = (rgb and 31) shl 3
-                r = r or (r shr 5)
-                g = g or (g shr 6)
-                b = b or (b shr 5)
-                pixels[row + x] = (0xff000000.toInt() or (r shl 16) or (g shl 8) or b)
+        if (line.startsWith("T|")) {
+            val target = working ?: return null
+            val p = line.split('|', limit = 4)
+            if (p.size != 4) { invalidate(); return null }
+            val seq = p[1].toIntOrNull() ?: run { invalidate(); return null }
+            val id = p[2].toIntOrNull() ?: run { invalidate(); return null }
+            if (seq != incomingSequence || id !in 0 until COUNT || received[id]) {
+                invalidate()
+                return null
             }
+            val x = id % COLS * TW
+            val y = id / COLS * TH
+            val w = minOf(TW, WIDTH - x)
+            val h = minOf(TH, HEIGHT - y)
+            val raw = try { Base64.getDecoder().decode(p[3]) }
+                catch (_: IllegalArgumentException) { invalidate(); return null }
+            if (raw.size != w * h * 2) { invalidate(); return null }
+            var input = 0
+            for (row in 0 until h) {
+                val dst = ((y + row) * WIDTH + x) * 2
+                System.arraycopy(raw, input, target, dst, w * 2)
+                input += w * 2
+            }
+            received[id] = true
+            receivedCount++
+            return null
         }
-        if (!seen[id]) {
-            seen[id] = true
-            ++received
-        }
-        if (received == COUNT && now - lastPublish >= 150L) {
-            lastPublish = now
-            return pixels.copyOf()
+        if (line.startsWith("E|")) {
+            val target = working ?: return null
+            val p = line.split('|')
+            if (p.size != 3) { invalidate(); return null }
+            val seq = p[1].toIntOrNull() ?: run { invalidate(); return null }
+            val expected = p[2].toLongOrNull(16) ?: run { invalidate(); return null }
+            if (seq != incomingSequence || receivedCount != expectedCount ||
+                expected !in 0..0xffffffffL || checksum(target) != expected) {
+                invalidate()
+                return null
+            }
+            committed = target
+            committedSequence = seq
+            hasCommitted = true
+            resetTransaction()
+            return asArgb(committed) // a fresh array never mutated after publication
         }
         return null
+    }
+
+    private fun checksum(data: ByteArray): Long {
+        var hash = 0x811c9dc5.toInt()
+        for (b in data) {
+            hash = (hash xor (b.toInt() and 255)) * 16777619
+        }
+        return hash.toLong() and 0xffffffffL
+    }
+
+    private fun asArgb(data: ByteArray): IntArray {
+        val result = IntArray(WIDTH * HEIGHT)
+        var offset = 0
+        for (i in result.indices) {
+            val rgb = (data[offset].toInt() and 255) or
+                ((data[offset + 1].toInt() and 255) shl 8)
+            offset += 2
+            var r = (rgb shr 11) shl 3
+            var g = ((rgb shr 5) and 63) shl 2
+            var b = (rgb and 31) shl 3
+            r = r or (r shr 5)
+            g = g or (g shr 6)
+            b = b or (b shr 5)
+            result[i] = 0xff000000.toInt() or (r shl 16) or (g shl 8) or b
+        }
+        return result
     }
 }

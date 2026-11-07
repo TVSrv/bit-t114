@@ -48,22 +48,62 @@ class BleLink {
     return started && Bluefruit.connected() && mirrorActive && (int32_t)(mirrorUntil - millis()) > 0;
   }
 
-  // Only called when the Android pet window is open. Tile fingerprints avoid
-  // retransmitting the static room and keep radio/CPU demand modest.
+  // Every transaction captures ONE immutable 240x135 framebuffer. All its
+  // tiles therefore describe exactly the same animation instant. The client
+  // only swaps its displayed image on E|seq|checksum after every tile arrived.
+  // This avoids the motion trails that partial RGB565 updates caused.
   void streamPixels(const gfx::Color* pixels) {
-    if (!mirrorEnabled()) return;
-    int attempts = 0, sent = 0;
-    while (attempts++ < 45 && sent < 4) {
-      int id = nextTile;
-      nextTile = (uint16_t)((nextTile + 1) % mirror_tiles::COUNT);
-      uint32_t hash = mirror_tiles::fingerprint(pixels, id);
-      if (tileSeen[id] && hash == tileHash[id]) continue;
+    if (!mirrorEnabled() || mirrorMode != 2) return;
+    const uint32_t t = millis();
+    if (!txActive) {
+      if (t - lastCapture < 150u) return;
+      lastCapture = t;
+      memcpy(snapshot, pixels, sizeof snapshot);
+      queuedCount = 0;
+      for (int id = 0; id < mirror_tiles::COUNT; ++id) {
+        if (!hasBaseline || mirror_tiles::fingerprint(snapshot, id) != baselineHash[id])
+          queuedIds[queuedCount++] = (uint16_t)id;
+      }
+      if (!queuedCount) return;
+      txSequence = (uint16_t)(txSequence + 1);
+      txChecksum = mirror_tiles::checksum(snapshot);
+      txSent = 0;
+      txHeaderSent = false;
+      txActive = true;
+    }
+    if (!txHeaderSent) {
+      char header[48];
+      snprintf(header, sizeof header, "B|%u|%u|%u",
+               (unsigned)txSequence, (unsigned)queuedCount,
+               (unsigned)(hasBaseline ? baselineSequence : 0));
+      if (!send(header)) return;
+      txHeaderSent = true;
+    }
+    // Limit each loop iteration to four BLE notifications to keep game input,
+    // screen refresh, watchdog and event reporting responsive.
+    for (int n = 0; n < 4 && txSent < queuedCount; ++n) {
       char packet[mirror_tiles::MAX_LINE];
-      if (mirror_tiles::encode(pixels, id, packet, sizeof packet) < 0) break;
-      if (!send(packet)) break; // retry the same tile after BLE congestion
-      tileSeen[id] = true;
-      tileHash[id] = hash;
-      ++sent;
+      if (mirror_tiles::encodeFrame(snapshot, txSequence,
+                                    queuedIds[txSent], packet, sizeof packet) < 0) {
+        resetMirror();
+        return;
+      }
+      if (!send(packet)) return; // Retry same tile after congestion.
+      ++txSent;
+    }
+    if (txSent == queuedCount) {
+      char footer[48];
+      snprintf(footer, sizeof footer, "E|%u|%08lX",
+               (unsigned)txSequence, (unsigned long)txChecksum);
+      if (!send(footer)) return;
+      // Commit only after all tiles and checksum have been sent.
+      for (int i = 0; i < queuedCount; ++i) {
+        const int id = queuedIds[i];
+        baselineHash[id] = mirror_tiles::fingerprint(snapshot, id);
+      }
+      hasBaseline = true;
+      baselineSequence = txSequence;
+      txActive = false;
     }
   }
 
@@ -78,7 +118,8 @@ class BleLink {
     if (!conn && wasConnected) {
       mirrorActive = false;
       mirrorUntil = 0;
-      memset(tileSeen, 0, sizeof tileSeen);
+      mirrorMode = 0;
+      resetMirror();
     }
     wasConnected = conn;
     while (uart.available()) {
@@ -86,17 +127,25 @@ class BleLink {
       if (c == '\n' || c == '\r') {
         if (len) {
           line[len] = 0;
-          if (!strcmp(line, "mirror 1")) {
-            if (!mirrorEnabled()) {
-              memset(tileSeen, 0, sizeof tileSeen);
-              nextTile = 0;
-            }
+          if (!strcmp(line, "mirror 2") || !strcmp(line, "mirror reset")) {
+            if (!mirrorEnabled() || mirrorMode != 2 ||
+                !strcmp(line, "mirror reset")) resetMirror();
             mirrorActive = true;
+            mirrorMode = 2;
             mirrorUntil = millis() + 12000u;
-            send("M|1");
+            send("M|2");
+          } else if (!strcmp(line, "mirror 1")) {
+            // The old unversioned F stream blends animation instants.
+            // Deliberately disable it: old APKs use native-render fallback.
+            mirrorActive = false;
+            mirrorMode = 0;
+            resetMirror();
+            send("M|0");
           } else if (!strcmp(line, "mirror 0")) {
             mirrorActive = false;
             mirrorUntil = 0;
+            mirrorMode = 0;
+            resetMirror();
             send("M|0");
           } else {
             game->command(line, reply, sizeof reply);
@@ -139,10 +188,25 @@ class BleLink {
   char reply[640];
   int len = 0;
   bool mirrorActive = false;
+  uint8_t mirrorMode = 0;
   uint32_t mirrorUntil = 0;
-  uint16_t nextTile = 0;
-  uint32_t tileHash[mirror_tiles::COUNT] = {};
-  bool tileSeen[mirror_tiles::COUNT] = {};
+  // 64.8 KB frozen RGB565 snapshot. Do not read the live framebuffer while
+  // BLE is halfway through a transaction.
+  gfx::Color snapshot[gfx::W * gfx::H] = {};
+  uint32_t baselineHash[mirror_tiles::COUNT] = {};
+  uint16_t queuedIds[mirror_tiles::COUNT] = {};
+  uint16_t queuedCount = 0, txSent = 0, txSequence = 0, baselineSequence = 0;
+  uint32_t txChecksum = 0, lastCapture = 0;
+  bool hasBaseline = false, txActive = false, txHeaderSent = false;
+
+  void resetMirror() {
+    txActive = false;
+    txHeaderSent = false;
+    hasBaseline = false;
+    queuedCount = txSent = 0;
+    txSequence = baselineSequence = 0;
+    lastCapture = 0;
+  }
 
   // Reliable NUS notifications; when blocked the tile must be retried.
   bool send(const char* s) {

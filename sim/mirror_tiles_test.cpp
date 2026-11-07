@@ -60,6 +60,20 @@ int main() {
   origin[0] ^= 1;
   if (mirror_tiles::fingerprint(origin.data(), 0) == mirror_tiles::fingerprint(decoded.data(), 0)) return 10;
   if (mirror_tiles::fingerprint(origin.data(), 1) != mirror_tiles::fingerprint(decoded.data(), 1)) return 11;
+  // V2 wire format: every tile belongs to an explicit immutable snapshot.
+  char v2[mirror_tiles::MAX_LINE];
+  if (mirror_tiles::encodeFrame(decoded.data(), 65535, 509, v2, sizeof v2) < 0) return 12;
+  if (strncmp(v2, "T|65535|509|", 12) || strlen(v2) > 195) return 13;
+  auto snapshot = decoded;
+  const uint32_t before = mirror_tiles::checksum(snapshot.data());
+  decoded[0] ^= 0x5a3c;
+  if (mirror_tiles::checksum(snapshot.data()) != before) return 14;
+  if (mirror_tiles::checksum(decoded.data()) == before) return 15;
+  // A moved pet's new framebuffer may change during BLE transmission,
+  // but the frozen snapshot and its checksum MUST NOT change.
+  if (mirror_tiles::fingerprint(snapshot.data(), 0) ==
+      mirror_tiles::fingerprint(decoded.data(), 0)) return 16;
+  std::puts("OK: v2 tagged tiles, immutable snapshots, whole-frame checksum.");
   std::puts("OK: exact 240x135 RGB565; 510 independently updated tiles; <193 bytes per tile.");
   return 0;
 }

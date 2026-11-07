@@ -61,7 +61,7 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
       - name: Build APK
         working-directory: android
-        run: bash ./gradlew --no-daemon assembleDebug
+        run: bash ./gradlew --no-daemon testDebugUnitTest assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: Bit-Tamagotchi-APK

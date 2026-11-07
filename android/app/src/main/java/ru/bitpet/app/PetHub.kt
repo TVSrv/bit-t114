@@ -365,8 +365,9 @@ object PetHub {
     private suspend fun renewMirror() {
         if (mirrorSupported == false || !uiVisible || !mirrorWanted) return
         lastMirrorRenew = System.currentTimeMillis()
-        // Old firmware reports an unknown command; keep the native renderer.
-        mirrorSupported = request("mirror 1", 2500) == "M|1"
+        // Only atomic v2 frames are safe for moving pets. Old firmware
+        // falls back to the app's native renderer; never enable legacy F|.
+        mirrorSupported = request("mirror 2", 2500) == "M|2"
     }
 
     private suspend fun pollLoop() {
@@ -380,10 +381,23 @@ object PetHub {
     }
 
     private fun onLine(line: String) {
-        if (line.startsWith("F|")) {
+        if (line.startsWith("B|") || line.startsWith("T|") ||
+            line.startsWith("E|")) {
             mirrorTiles.accept(line)?.let { mirrorFrame.value = it }
+            if (mirrorTiles.takeResyncRequest() && mirrorSupported != false &&
+                link.state.value == BitLink.State.READY) {
+                mirrorTiles.prepareResync()
+                // Serialized with telemetry/other BLE requests by requestLock.
+                scope.launch {
+                    if (request("mirror reset", 2500) != "M|2") {
+                        mirrorSupported = false
+                        mirrorFrame.value = null
+                    }
+                }
+            }
             return
         }
+        if (line.startsWith("F|")) return // discard obsolete non-atomic packets
         if (line.startsWith("» ")) { onEvent(line.removePrefix("» ")); return }
         pending?.complete(line)
     }

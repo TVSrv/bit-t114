@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 namespace mirror_tiles {
 static constexpr int TILE_W = 16;
@@ -38,6 +39,24 @@ inline uint32_t fingerprint(const gfx::Color* pixels, int id) {
   }
   return hash;
 }
+// Whole-frame checksum over RGB565 bytes in display order. Both nRF52840
+// and the Android decoder evaluate the same FNV-1a byte sequence.
+inline uint32_t checksum(const gfx::Color* pixels) {
+  uint32_t hash = 2166136261u;
+  for (int i = 0; i < gfx::W * gfx::H; ++i) {
+    const uint16_t c = pixels[i];
+    hash = (hash ^ (uint8_t)c) * 16777619u;
+    hash = (hash ^ (uint8_t)(c >> 8)) * 16777619u;
+  }
+  return hash;
+}
+
+// Keep the old F codec for host tests and older integrations, but use an
+// explicitly versioned frame sequence in the new mirror session:
+// B|sequence|changed_tiles|base_sequence
+// T|sequence|tile_id|base64 RGB565 LE
+// E|sequence|frame_checksum_hex
+// No partial frame is ever displayed by the Android v2 client.
 inline int encode(const gfx::Color* pixels, int id, char* out, size_t cap) {
   if (!pixels || !out || id < 0 || id >= COUNT || cap < MAX_LINE) return -1;
   const int x0 = tileX(id), y0 = tileY(id), w = tileWidth(id), h = tileHeight(id);
@@ -65,5 +84,22 @@ inline int encode(const gfx::Color* pixels, int id, char* out, size_t cap) {
   }
   out[k] = 0;
   return k;
+}
+
+inline int encodeFrame(const gfx::Color* pixels, uint16_t frame, int id,
+                       char* out, size_t cap) {
+  if (cap < MAX_LINE) return -1;
+  char old[MAX_LINE];
+  if (encode(pixels, id, old, sizeof old) < 0) return -1;
+  const char* data = old + 2;
+  while (*data && *data != '|') ++data;
+  if (*data != '|') return -1;
+  ++data;
+  const int head = snprintf(out, cap, "T|%u|%d|", (unsigned)frame, id);
+  if (head < 0 || (size_t)head >= cap) return -1;
+  const size_t remaining = strlen(data);
+  if ((size_t)head + remaining + 1 > cap) return -1;
+  memcpy(out + head, data, remaining + 1);
+  return head + (int)remaining;
 }
 }

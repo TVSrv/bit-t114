@@ -15,8 +15,8 @@ android {
         applicationId = "ru.bitpet.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 31
-        versionName = "0.31-alerts-fix"
+        versionCode = 32
+        versionName = "0.32-atomic-mirror"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         externalNativeBuild { cmake { cppFlags += "-std=c++17" } }
     }
@@ -64,4 +64,5 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.bundles.compose)
     implementation(libs.nordic.dfu)
+    testImplementation("junit:junit:4.13.2")
 }

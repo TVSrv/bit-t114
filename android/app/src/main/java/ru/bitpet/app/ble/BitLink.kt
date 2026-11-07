@@ -12,7 +12,7 @@ import android.os.Build
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -25,7 +25,11 @@ class BitLink(private val ctx: Context, private val scope: CoroutineScope) {
     enum class State { IDLE, CONNECTING, READY }
 
     val state = MutableStateFlow(State.IDLE)
-    val lines = MutableSharedFlow<String>(extraBufferCapacity = 64)
+    // Don't silently discard tiles/events when Android's main thread is busy.
+    // Only PetHub collects this stream. Nordic UART notifications are
+    // lossless in order, but the former 64-item SharedFlow dropped bursts.
+    private val incoming = Channel<String>(Channel.UNLIMITED)
+    val lines = incoming.receiveAsFlow()
     val deviceName = MutableStateFlow("")
 
     private var gatt: BluetoothGatt? = null
@@ -83,7 +87,7 @@ class BitLink(private val ctx: Context, private val scope: CoroutineScope) {
                 if (x == '\n'.code.toByte()) {
                     val line = String(inbox.toByteArray(), Charsets.UTF_8).trim('\r', ' ')
                     inbox.reset()
-                    if (line.isNotEmpty()) lines.tryEmit(line)
+                    if (line.isNotEmpty()) incoming.trySend(line)
                 } else if (inbox.size() < 4096) {
                     inbox.write(x.toInt())
                 }
