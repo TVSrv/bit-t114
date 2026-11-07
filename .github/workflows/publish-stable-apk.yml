@@ -1,0 +1,51 @@
+name: Publish stable Android 0.33 APK
+
+on:
+  push:
+    branches: ['experiment/rich-weather-dashboard-0.43']
+    paths: ['.github/workflows/publish-stable-apk.yml']
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Verify successful build source and artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA="$(gh api repos/TVSrv/bit-t114/actions/runs/42361100227 --jq .head_sha)"
+          RESULT="$(gh api repos/TVSrv/bit-t114/actions/runs/42361100227 --jq .conclusion)"
+          test "$SHA" = "e19601df1a2d8fb90652342f4c38258979a4e2cc"
+          test "$RESULT" = "success"
+          mkdir -p out release
+          gh run download 42361100227 --repo TVSrv/bit-t114 --name Bit-Tamagotchi-APK --dir out
+          cp out/app-debug.apk release/Bit-Android-0.33-stable.apk
+          echo '851689d126cf622080d325c07736843d3d8cef2465a6825b5f187434439fc3c2  release/Bit-Android-0.33-stable.apk' | sha256sum -c
+
+      - name: Include already published unchanged 0.43.13 firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download bit-t114-v0.43.13-android-v0.32-test --repo TVSrv/bit-t114 --pattern 'Bit-T114-0.43.13-OTA.zip' --dir release
+          gh release download bit-t114-v0.43.13-android-v0.32-test --repo TVSrv/bit-t114 --pattern 'Bit-T114-0.43.13.uf2' --dir release
+          echo '982bd0c3fea78c0f1b8a7755d08b8c26fc4f6aaf95ba70e33a29ed47d1c15e92  release/Bit-T114-0.43.13-OTA.zip' | sha256sum -c
+          echo 'f26625f8e8abfdcb7d81c813c7b328b6a2e57991eed54c970b2d19302a469800  release/Bit-T114-0.43.13.uf2' | sha256sum -c
+
+      - name: Publish direct links
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=bit-android-v0.33-stable-local
+          if gh release view "$TAG" --repo TVSrv/bit-t114 >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber --repo TVSrv/bit-t114
+          else
+            gh release create "$TAG" release/* --repo TVSrv/bit-t114 --target e19601df1a2d8fb90652342f4c38258979a4e2cc --title 'Bit Android 0.33 — stable local rendering (test)' --notes 'Fix Android 0.32 freezes and unreliable BLE caused by 510-tile framebuffer streaming. Android 0.33 restores known-working 20 FPS local C++ rendering, Bluetooth state updates, actions, notifications and connection handling. No T114 firmware update needed. T114 0.43.13 OTA/UF2 included unchanged. Test build: preserve your pet backup; APK is debug signed and may not install over differently signed versions. Physical BLE behavior remains to be validated.' --prerelease
+          fi
